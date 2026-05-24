@@ -1775,10 +1775,10 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
               <label className={labelCls}>Tanggal Pelunasan</label>
               <input type="date" className={inputCls} value={formData.tanggal_pelunasan || ""} onChange={(e) => update("tanggal_pelunasan", e.target.value)} />
             </div>
-            <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4 text-sm text-slate-700">
+            {/* <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4 text-sm text-slate-700">
               <p className="font-bold">Catatan SPJ</p>
               <p className="mt-2">Filter hotel digunakan untuk memilih peserta. Tidak perlu mengisi tempat/hotel secara terpisah.</p>
-            </div>
+            </div> */}
             <FilterPesertaHotelPanel
               xlsxLoaded={xlsxLoaded}
               formData={formData}
@@ -1816,10 +1816,10 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
                 <input type="date" className={inputCls} value={formData.tanggal_akhir_kegiatan || ""} onChange={(e) => update("tanggal_akhir_kegiatan", e.target.value)} />
               </div>
             </div>
-            <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4 text-sm text-slate-700">
+            {/* <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4 text-sm text-slate-700">
               <p className="font-bold">Catatan SPD</p>
               <p className="mt-2">Gunakan filter tempat untuk pilih peserta yang akan masuk ke Lampiran SPD.</p>
-            </div>
+            </div> */}
             <FilterPesertaHotelPanel
               xlsxLoaded={xlsxLoaded}
               formData={formData}
