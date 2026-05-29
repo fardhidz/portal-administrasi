@@ -1251,7 +1251,7 @@ function FilterPesertaPanel({
             <option key={hotel} value={hotel}>{hotel}</option>
           ))}
         </select>
-        <p className="mt-1 text-xs font-semibold text-slate-400">Daftar hotel diambil otomatis dari kolom Hotel pada data XLSX.</p>
+        <p className="mt-1 text-xs font-semibold text-slate-400">Daftar hotel diambil otomatis dari kolom TC pada data XLSX.</p>
       </div>
 
       {/* Gelombang + Kelas */}
