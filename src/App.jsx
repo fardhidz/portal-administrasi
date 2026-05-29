@@ -35,29 +35,85 @@ const DOC_TYPES = [
 
 // ─── XLSX PARSER ─────────────────────────────────────────────────────────────
 
+function normalizeRowHeaders(row) {
+  const normalized = {};
+  Object.entries(row).forEach(([k, v]) => {
+    const key = String(k ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+    normalized[key] = typeof v === "string" ? v.trim() : v;
+  });
+
+  return {
+    no:            normalized["no"]                                                 ?? "",
+    nama:          normalized["nama"]                                               ?? normalized["nama lengkap"] ?? normalized["nama_lengkap"] ?? normalized["nama-lengkap"] ?? "",
+    nik:           normalized["nik"]                                                ?? "",
+    asal:          normalized["asal"]                                               ?? "",
+    wilTugas:      normalized["wil. tugas"]                                         ?? normalized["wil tugas"]   ?? normalized["wil.tugas"]   ?? normalized["wilayah tugas"] ?? "",
+    jabatan:       normalized["jabatan"]                                            ?? normalized["posisi"]      ?? "",
+    pangkatGol:    normalized["pangkat/gol"]                                        ?? normalized["pangkat gol"] ?? normalized["pangkatgol"] ?? "",
+    kelas:         String(normalized["kelas"] ?? "").trim(),
+    hotel:         normalized["tc"]                                                 ?? normalized["hotel"]       ?? "",
+    gelombang:     String(normalized["gelombang"] ?? "").trim(),
+    tc:            normalized["tc"]                                                 ?? "",
+    sobatId:       normalized["sobat id"]                                           ?? normalized["sobatid"]    ?? "",
+    email:         normalized["email"]                                              ?? "",
+    jenisKelamin:  normalized["jenis kelamin"]                                      ?? normalized["jeniskelamin"] ?? "",
+  };
+}
+
 function parseXlsxData(arrayBuffer) {
   const workbook = XLSX.read(arrayBuffer, { type: "array" });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const sheet = workbook.Sheets[workbook.SheetNames[5]];
   const raw = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
-  return raw.map((row) => {
-    const normalized = {};
-    Object.entries(row).forEach(([k, v]) => {
-      normalized[k.trim()] = typeof v === "string" ? v.trim() : v;
-    });
-    return {
-      no:         normalized["No"]          ?? normalized["NO"]          ?? "",
-      nama:       normalized["Nama"]        ?? normalized["NAMA"]        ?? "",
-      nik:        normalized["NIK"]         ?? normalized["Nik"]         ?? "",
-      asal:       normalized["Asal"]        ?? normalized["ASAL"]        ?? "",
-      wilTugas:   normalized["Wil. Tugas"]  ?? normalized["Wil.Tugas"]   ?? normalized["Wilayah Tugas"] ?? "",
-      jabatan:    normalized["Jabatan"]     ?? normalized["JABATAN"]     ?? "",
-      pangkatGol: normalized["Pangkat/Gol"] ?? normalized["Pangkat/gol"] ?? normalized["PangkatGol"] ?? "",
-      kelas:      String(normalized["Kelas"]      ?? normalized["KELAS"]      ?? "").trim(),
-      hotel:      normalized["Hotel"]       ?? normalized["HOTEL"]       ?? "",
-      gelombang:  String(normalized["Gelombang"]  ?? normalized["GELOMBANG"]  ?? "").trim(),
-    };
-  }).filter(r => r.nama !== "");
+  return raw.map((row) => normalizeRowHeaders(row)).filter(r => r.nama !== "" || r.nik !== "" || r.sobatId !== "");
+}
+
+function parseCsvData(csvText) {
+  const workbook = XLSX.read(csvText, { type: "string" });
+  const sheet = workbook.Sheets[workbook.SheetNames[5]];
+  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+  return raw.map((row) => normalizeRowHeaders(row)).filter(r => r.nama !== "" || r.nik !== "" || r.sobatId !== "");
+}
+
+function normalizeGoogleSheetUrl(url) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url.trim());
+    const sheetIdMatch = parsed.pathname.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    const gid = parsed.searchParams.get("gid") || "0";
+    if (!sheetIdMatch) return null;
+    return `https://docs.google.com/spreadsheets/d/${sheetIdMatch[1]}/export?format=csv&gid=${gid}`;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHeaderKeys(headers) {
+  return headers.map((h) => String(h ?? "").trim().toLowerCase());
+}
+
+function isAdministrasiSheet(headers) {
+  const keys = normalizeHeaderKeys(headers);
+  const hasName = keys.some((h) => ["nama", "nama lengkap", "nama_lengkap", "nama-lengkap"].includes(h));
+  const hasJabatan = keys.some((h) => ["jabatan", "posisi"].includes(h));
+  const hasTc = keys.includes("tc");
+  const hasKelas = keys.includes("kelas");
+  const hasGelombang = keys.includes("gelombang");
+  return hasName && hasJabatan && hasTc && hasKelas && hasGelombang;
+}
+
+async function loadGoogleSheet(csvUrl) {
+  const response = await fetch(csvUrl);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const text = await response.text();
+  const workbook = XLSX.read(text, { type: "string" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  const rawHeaders = raw.length ? Object.keys(raw[0]).map((h) => String(h ?? "").trim()) : [];
+
+  const data = raw.map((row) => normalizeRowHeaders(row)).filter((r) => r.nama !== "" || r.nik !== "" || r.sobatId !== "");
+  return { data, rawHeaders };
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -280,8 +336,8 @@ async function generateSuratTugas(templateUrl, formValues, peserta) {
 // ─── DAFTAR HADIR — DOCX GENERATOR ──────────────────────────────────────────
 
 function buildDaftarHadirTemplateData(formValues, peserta, namaInda, selectedFilterGroup = "") {
-  const jamMulai    = normalizeJamIndonesia(formValues.jamMulai,    "07.00");
-  const jamSelesai  = normalizeJamIndonesia(formValues.jamSelesai,  "17.00");
+  const jamMulai    = normalizeJamIndonesia(formValues.jamMulai,    "07.30");
+  const jamSelesai  = normalizeJamIndonesia(formValues.jamSelesai,  "18.00");
   const tanggalFormatted = formatTanggalIndonesia(formValues.tanggal);
   const jamFormatted     = `${jamMulai} - ${jamSelesai}`;
 
@@ -469,9 +525,12 @@ export default function PortalAdministrasiSE2026() {
   const [previewData,  setPreviewData]  = useState(null);
   const [sidebarOpen,  setSidebarOpen]  = useState(false);
 
-  const [petugasData,  setPetugasData]  = useState([]);
-  const [xlsxLoaded,   setXlsxLoaded]  = useState(false);
-  const [xlsxFileName, setXlsxFileName] = useState("data-petugas.xlsx");
+  const [petugasData,        setPetugasData]        = useState([]);
+  const [xlsxLoaded,         setXlsxLoaded]         = useState(false);
+  const [xlsxFileName,       setXlsxFileName]       = useState("data-petugas.xlsx");
+  const [googleSheetUrl,     setGoogleSheetUrl]     = useState("https://docs.google.com/spreadsheets/d/10jA_NOMNn5pBuy1OPrSdHstscRrUOUlEDElk-jOmXLQ/edit?gid=1095810027#gid=1095810027");
+  const [googleSheetError,   setGoogleSheetError]   = useState(null);
+  const [googleSheetLoading, setGoogleSheetLoading] = useState(false);
 
   React.useEffect(() => {
     const loadXlsxData = async () => {
@@ -486,8 +545,54 @@ export default function PortalAdministrasiSE2026() {
         console.warn("Tidak dapat memuat data-petugas.xlsx: " + err.message);
       }
     };
-    loadXlsxData();
+
+    const initLoad = async () => {
+      if (googleSheetUrl) {
+        await loadGoogleSheetData();
+      } else {
+        await loadXlsxData();
+      }
+    };
+
+    initLoad();
   }, []);
+
+  const loadGoogleSheetData = async () => {
+    const normalized = normalizeGoogleSheetUrl(googleSheetUrl);
+    if (!normalized) {
+      setGoogleSheetError("URL Google Sheets tidak valid. Gunakan format spreadsheet yang benar.");
+      return;
+    }
+
+    setGoogleSheetError(null);
+    setGoogleSheetLoading(true);
+
+    try {
+      const result = await loadGoogleSheet(normalized);
+      const { data, rawHeaders } = result;
+      
+      if (!isAdministrasiSheet(rawHeaders)) {
+        setGoogleSheetError(`Kolom tidak sesuai. Pastikan sheet memiliki: Nama Lengkap, Posisi, TC, Kelas, Gelombang.\n\nKolom yang ditemukan: ${rawHeaders.slice(0, 8).join(", ")}...`);
+        setGoogleSheetLoading(false);
+        return;
+      }
+
+      if (data.length === 0) {
+        setGoogleSheetError("Sheet tidak berisi data atau semua baris kosong.");
+        setGoogleSheetLoading(false);
+        return;
+      }
+
+      setPetugasData(data);
+      setXlsxLoaded(true);
+      setXlsxFileName(`Google Sheet (${data.length} petugas)`);
+    } catch (err) {
+      setGoogleSheetError(`Gagal memuat Google Sheet: ${err.message}`);
+      console.warn(err);
+    } finally {
+      setGoogleSheetLoading(false);
+    }
+  };
 
   const openForm = (docType) => {
     setSelectedDoc(docType);
@@ -648,12 +753,21 @@ export default function PortalAdministrasiSE2026() {
                 </div>
 
                 {!xlsxLoaded && (
-                  <XlsxUploadCard
-                    loaded={xlsxLoaded}
-                    fileName={xlsxFileName}
-                    petugasCount={petugasData.length}
-                    onUpload={handleXlsxUpload}
-                  />
+                  <>
+                    <XlsxUploadCard
+                      loaded={xlsxLoaded}
+                      fileName={xlsxFileName}
+                      petugasCount={petugasData.length}
+                      onUpload={handleXlsxUpload}
+                    />
+                    <GoogleSheetCard
+                      url={googleSheetUrl}
+                      onUrlChange={setGoogleSheetUrl}
+                      onLoad={loadGoogleSheetData}
+                      loading={googleSheetLoading}
+                      error={googleSheetError}
+                    />
+                  </>
                 )}
 
                 {xlsxLoaded && (
@@ -908,6 +1022,48 @@ function XlsxUploadCard({ loaded, fileName, petugasCount, onUpload }) {
         </div>
       )}
     </div>
+  );
+}
+
+function GoogleSheetCard({ url, onUrlChange, onLoad, loading, error }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mb-8 rounded-3xl border border-orange-200 bg-white p-6 shadow-sm"
+    >
+      <div className="flex items-center gap-4">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100">
+          <MapPin size={22} className="text-orange-600" />
+        </div>
+        <div>
+          <p className="font-black text-slate-900">Load dari Google Spreadsheet</p>
+          <p className="text-sm text-slate-500">Gunakan sheet bernama "Administrasi" dengan kolom TC, NIK, Jabatan, Wil. Tugas, Asal, Pangkat/Gol, Kelas, Gelombang.</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
+        <input
+          value={url}
+          onChange={(e) => onUrlChange(e.target.value)}
+          placeholder="https://docs.google.com/spreadsheets/d/ID_SHEET/edit#gid=0"
+          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-orange-300 focus:bg-white"
+        />
+        <button
+          type="button"
+          onClick={onLoad}
+          disabled={loading || !url}
+          className="rounded-2xl bg-orange-600 px-5 py-3 text-sm font-bold text-white transition enabled:hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-orange-200"
+        >
+          {loading ? "Memuat..." : "Muat"}
+        </button>
+      </div>
+
+      {error && (
+        <p className="mt-3 text-sm text-red-600">{error}</p>
+      )}
+      <p className="mt-3 text-xs text-slate-400">Catatan: Link akan dikonversi ke format CSV otomatis.</p>
+    </motion.div>
   );
 }
 
@@ -1354,7 +1510,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
   // Set default jam
   React.useEffect(() => {
     if (docType.id === "daftar-hadir" && !formData.jamMulai && !formData.jamSelesai) {
-      setFormData(prev => ({ ...prev, jamMulai: "07.00", jamSelesai: "17.00" }));
+      setFormData(prev => ({ ...prev, jamMulai: "07.30", jamSelesai: "18.00" }));
     }
   }, [docType.id]);
 
@@ -1626,8 +1782,8 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
                 <label className={labelCls}>Jam Mulai</label>
                 <input
                   className={inputCls}
-                  placeholder="07.00"
-                  value={formData.jamMulai || "07.00"}
+                  placeholder="07.30"
+                  value={formData.jamMulai || "07.30"}
                   onChange={(e) => update("jamMulai", normalizeJamIndonesia(e.target.value))}
                 />
               </div>
@@ -1635,8 +1791,8 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
                 <label className={labelCls}>Jam Selesai</label>
                 <input
                   className={inputCls}
-                  placeholder="17.00"
-                  value={formData.jamSelesai || "17.00"}
+                  placeholder="18.00"
+                  value={formData.jamSelesai || "18.00"}
                   onChange={(e) => update("jamSelesai", normalizeJamIndonesia(e.target.value))}
                 />
               </div>
