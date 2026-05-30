@@ -405,25 +405,50 @@ async function generateSpj(templateUrl, formValues, peserta) {
 
 // SPD
 function buildSpdTemplateData(formValues, peserta = []) {
+  const sorted       = sortPesertaByJabatanOrder(peserta || []);
   const tanggalAwal  = formatTanggalIndonesia(formValues.tanggal_awal_kegiatan);
   const tanggalAkhir = formatTanggalIndonesia(formValues.tanggal_akhir_kegiatan);
   const lamaHari     = calcDurationDays(formValues.tanggal_awal_kegiatan, formValues.tanggal_akhir_kegiatan);
+  const tanggalSurat = formatTanggalIndonesia(formValues.tanggal_surat || formValues.tanggal);
+
   return {
-    nomor_dokumen: formValues.nomor || "",
-    tanggal_surat: formatTanggalIndonesia(formValues.tanggal),
-    kegiatan: formValues.kegiatan || "",
-    lokasi: formValues.lokasi || formValues.tempat || formValues.hotel || "",
+    nomor_dokumen: formValues.nomor_dokumen || formValues.nomor || "",
+    nomor: formValues.nomor_dokumen || formValues.nomor || "",
+    tanggal_surat: tanggalSurat,
+    tanggal: tanggalSurat,
     tempat: formValues.tempat || formValues.hotel || "",
+    lokasi: formValues.lokasi || formValues.tempat || formValues.hotel || "",
+    gelombang: formValues.gelombang || "",
+    kelas: formValues.kelas || "-",
     tanggal_awal_kegiatan: tanggalAwal,
     tanggal_akhir_kegiatan: tanggalAkhir,
     lama_hari: lamaHari,
-    jumlah_peserta: peserta.length || 0,
+    lama: lamaHari,
+    jumlah_peserta: sorted.length || 0,
     ttd_nama: formValues.namaKabps || "",
     ttd_nip: formValues.nipKabps || "",
-    peserta: peserta.map((p, idx) => ({
-      no: idx + 1, nama: cleanText(p.nama), nik: cleanText(p.nik), jabatan: cleanText(p.jabatan),
-      tanggal_awal_kegiatan: tanggalAwal, tanggal_akhir_kegiatan: tanggalAkhir, lama: lamaHari,
-    })),
+    peserta: sorted.map((p, idx) => {
+      const jabatan = cleanText(p.jabatan);
+      const pangkatGolRaw = cleanText(p.pangkatGol);
+      const isPanitia = upperText(jabatan) === "PANITIA";
+      const pangkatValue = isPanitia && (!pangkatGolRaw || upperText(pangkatGolRaw) === "#N/A") ? "" : pangkatGolRaw;
+
+      return {
+        no: idx + 1,
+        nama: cleanText(p.nama),
+        nik: cleanText(p.nik),
+        jabatan,
+        pangkat: pangkatValue,
+        pangkatGol: pangkatValue,
+        pangkat_gol: pangkatValue,
+        kecamatan: cleanText(p.wilTugas),
+        wil_tugas: cleanText(p.wilTugas),
+        wilTugas: cleanText(p.wilTugas),
+        tanggal_awal_kegiatan: tanggalAwal,
+        tanggal_akhir_kegiatan: tanggalAkhir,
+        lama: lamaHari,
+      };
+    }),
   };
 }
 
@@ -442,19 +467,50 @@ async function generateSpd(mainUrl, attachmentUrl, formValues, peserta) {
     createSpdBlob(mainUrl, formValues || {}, peserta || []),
     createSpdBlob(attachmentUrl, formValues || {}, peserta || []),
   ]);
-  saveAs(blobMain,    `SPD ${formValues.tempat || "SE2026"} ${formValues.tanggal || ""}.docx`);
-  saveAs(blobLampiran, `Lampiran SPD ${formValues.tempat || "SE2026"} ${formValues.tanggal || ""}.docx`);
+
+  const safeNomor = formValues?.nomor_dokumen || formValues?.nomor || "SE2026";
+  const safeTempat = formValues?.tempat || "SE2026";
+  const safeGelombang = formValues?.gelombang || "X";
+  const safeTanggal = formValues?.tanggal_surat || formValues?.tanggal || "";
+
+  saveAs(blobMain, `SPD ${safeNomor} ${safeTempat} Gelombang ${safeGelombang} ${safeTanggal}.docx`);
+  saveAs(blobLampiran, `Lampiran SPD ${safeNomor} ${safeTempat} Gelombang ${safeGelombang} ${safeTanggal}.docx`);
 }
 
 // SURAT TUGAS
 function buildSuratTugasTemplateData(formValues, peserta = []) {
+  const sorted       = sortPesertaByJabatanOrder(peserta || []);
+  const tanggalAwal  = formatTanggalIndonesia(formValues.tanggal_awal_kegiatan);
+  const tanggalAkhir = formatTanggalIndonesia(formValues.tanggal_akhir_kegiatan);
+  const lamaHari     = calcDurationDays(formValues.tanggal_awal_kegiatan, formValues.tanggal_akhir_kegiatan) || "";
+  const tanggalSurat = formatTanggalIndonesia(formValues.tanggal_surat);
+
   return {
     nomor_surat:            formValues.nomor_surat || "",
-    tanggal_surat:          formatTanggalIndonesia(formValues.tanggal_surat),
-    tanggal_awal_kegiatan:  formatTanggalIndonesia(formValues.tanggal_awal_kegiatan),
-    tanggal_akhir_kegiatan: formatTanggalIndonesia(formValues.tanggal_akhir_kegiatan),
-    lama: calcDurationDays(formValues.tanggal_awal_kegiatan, formValues.tanggal_akhir_kegiatan) || "",
-    peserta: (peserta || []).map((p, idx) => ({ no: idx + 1, nama: cleanText(p.nama), nik: cleanText(p.nik) })),
+    nomor:                  formValues.nomor_surat || "",
+    tanggal_surat:          tanggalSurat,
+    tanggal:                tanggalSurat,
+    tempat:                 formValues.tempat || formValues.hotel || "",
+    lokasi:                 formValues.lokasi || formValues.tempat || formValues.hotel || "",
+    gelombang:              formValues.gelombang || "",
+    kelas:                  formValues.kelas || "-",
+    tanggal_awal_kegiatan:  tanggalAwal,
+    tanggal_akhir_kegiatan: tanggalAkhir,
+    lama:                   lamaHari,
+    lama_hari:              lamaHari,
+    jumlah_peserta:         sorted.length || 0,
+    peserta: sorted.map((p, idx) => ({
+      no:          idx + 1,
+      nama:        cleanText(p.nama),
+      nik:         cleanText(p.nik),
+      jabatan:     cleanText(p.jabatan),
+      pangkat:     cleanText(p.pangkatGol),
+      pangkatGol:  cleanText(p.pangkatGol),
+      pangkat_gol: cleanText(p.pangkatGol),
+      kecamatan:   cleanText(p.wilTugas),
+      wil_tugas:   cleanText(p.wilTugas),
+      wilTugas:    cleanText(p.wilTugas),
+    })),
   };
 }
 
@@ -470,7 +526,11 @@ async function createSuratTugasBlob(templateUrl, formValues, peserta) {
 
 async function generateSuratTugas(templateUrl, formValues, peserta) {
   const blob = await createSuratTugasBlob(templateUrl, formValues || {}, peserta || []);
-  saveAs(blob, `Surat Tugas ${formValues.nomor_surat || formValues.tempat || "SE2026"}.docx`);
+  const safeNomor = formValues?.nomor_surat || "SE2026";
+  const safeTempat = formValues?.tempat || "SE2026";
+  const safeGelombang = formValues?.gelombang || "X";
+  const safeTanggal = formValues?.tanggal_surat || "";
+  saveAs(blob, `Surat Tugas ${safeNomor} ${safeTempat} Gelombang ${safeGelombang} ${safeTanggal}.docx`);
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
@@ -1208,9 +1268,27 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
     }
 
     if (docType.id === "spd") {
-      if (!spdFiltered || spdPeserta.length === 0) { alert("Tampilkan peserta terlebih dahulu."); return; }
+      if (!spdFiltered || spdPeserta.length === 0) {
+        alert("Tampilkan peserta terlebih dahulu.");
+        return;
+      }
+
       onPreview({
-        formValues: { nomor: formData.nomor || "", tanggal: formData.tanggal || "", kegiatan: formData.kegiatan || "", lokasi: formData.lokasi || formData.tempat || formData.hotel || "", tempat: formData.tempat || formData.hotel || "", tanggal_awal_kegiatan: formData.tanggal_awal_kegiatan || "", tanggal_akhir_kegiatan: formData.tanggal_akhir_kegiatan || "", namaKabps: formData.namaKabps || "", nipKabps: formData.nipKabps || "" },
+        formValues: {
+          nomor_dokumen:           formData.nomor_dokumen || formData.nomor || "",
+          nomor:                   formData.nomor_dokumen || formData.nomor || "",
+          tanggal_surat:           formData.tanggal_surat || "",
+          tanggal:                 formData.tanggal_surat || "",
+          tanggal_awal_kegiatan:   formData.tanggal_awal_kegiatan || "",
+          tanggal_akhir_kegiatan:  formData.tanggal_akhir_kegiatan || "",
+          tempat:                  formData.tempat || formData.hotel || "",
+          hotel:                   formData.hotel || "",
+          gelombang:               formData.gelombang || "",
+          kelas:                   "-",
+          lokasi:                  formData.tempat || formData.hotel || "",
+          namaKabps:               formData.namaKabps || "",
+          nipKabps:                formData.nipKabps || "",
+        },
         peserta: spdPeserta,
       });
       return;
@@ -1218,7 +1296,19 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
 
     if (docType.id === "surat-tugas") {
       if (!suratTugasFiltered || suratTugasPeserta.length === 0) { alert("Tampilkan peserta terlebih dahulu."); return; }
-      onPreview({ formValues: { nomor_surat: formData.nomor_surat || "", tanggal_surat: formData.tanggal_surat || "", tanggal_awal_kegiatan: formData.tanggal_awal_kegiatan || "", tanggal_akhir_kegiatan: formData.tanggal_akhir_kegiatan || "" }, peserta: suratTugasPeserta });
+      onPreview({
+        formValues: {
+          nomor_surat:            formData.nomor_surat || "",
+          tanggal_surat:          formData.tanggal_surat || "",
+          tanggal_awal_kegiatan:  formData.tanggal_awal_kegiatan || "",
+          tanggal_akhir_kegiatan: formData.tanggal_akhir_kegiatan || "",
+          tempat:                 formData.tempat || formData.hotel || "",
+          hotel:                  formData.hotel || "",
+          gelombang:              formData.gelombang || "",
+          kelas:                  "-",
+        },
+        peserta: suratTugasPeserta,
+      });
       return;
     }
 
@@ -1456,14 +1546,60 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
         return (
           <>
             <div className="grid gap-5 sm:grid-cols-2">
-              <div><label className={labelCls}>Nomor Dokumen</label><input className={inputCls} placeholder="Contoh: 100/BPS-3171/2026" value={formData.nomor || ""} onChange={(e) => update("nomor", e.target.value)} /></div>
-              <div><label className={labelCls}>Tanggal Surat</label><input type="date" className={inputCls} value={formData.tanggal || ""} onChange={(e) => update("tanggal", e.target.value)} /></div>
+              <div>
+                <label className={labelCls}>Nomor Dokumen</label>
+                <input
+                  className={inputCls}
+                  placeholder="Contoh: 100/BPS-3171/2026"
+                  value={formData.nomor_dokumen || formData.nomor || ""}
+                  onChange={(e) => {
+                    update("nomor_dokumen", e.target.value);
+                    update("nomor", e.target.value);
+                  }}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Tanggal Surat</label>
+                <input
+                  type="date"
+                  className={inputCls}
+                  value={formData.tanggal_surat || ""}
+                  onChange={(e) => update("tanggal_surat", e.target.value)}
+                />
+              </div>
             </div>
+
             <div className="grid gap-5 sm:grid-cols-2">
-              <div><label className={labelCls}>Tanggal Awal Kegiatan</label><input type="date" className={inputCls} value={formData.tanggal_awal_kegiatan || ""} onChange={(e) => update("tanggal_awal_kegiatan", e.target.value)} /></div>
-              <div><label className={labelCls}>Tanggal Akhir Kegiatan</label><input type="date" className={inputCls} value={formData.tanggal_akhir_kegiatan || ""} onChange={(e) => update("tanggal_akhir_kegiatan", e.target.value)} /></div>
+              <div>
+                <label className={labelCls}>Tanggal Awal Kegiatan</label>
+                <input
+                  type="date"
+                  className={inputCls}
+                  value={formData.tanggal_awal_kegiatan || ""}
+                  onChange={(e) => update("tanggal_awal_kegiatan", e.target.value)}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Tanggal Akhir Kegiatan</label>
+                <input
+                  type="date"
+                  className={inputCls}
+                  value={formData.tanggal_akhir_kegiatan || ""}
+                  onChange={(e) => update("tanggal_akhir_kegiatan", e.target.value)}
+                />
+              </div>
             </div>
-            <FilterPesertaHotelPanel xlsxLoaded={xlsxLoaded} formData={formData} setFormData={setFormData} petugasData={petugasData} onFilterResult={(peserta) => { setSpdPeserta(peserta); setSpdFiltered(peserta.length > 0); }} />
+
+            <FilterPesertaHotelGelombangPanel
+              xlsxLoaded={xlsxLoaded}
+              formData={formData}
+              setFormData={setFormData}
+              petugasData={petugasData}
+              onFilterResult={(peserta) => {
+                setSpdPeserta(peserta);
+                setSpdFiltered(peserta.length > 0);
+              }}
+            />
           </>
         );
 
@@ -1479,7 +1615,16 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
               <div><label className={labelCls}>Tanggal Awal Penyelenggaraan</label><input type="date" className={inputCls} value={formData.tanggal_awal_kegiatan || ""} onChange={(e) => update("tanggal_awal_kegiatan", e.target.value)} /></div>
               <div><label className={labelCls}>Tanggal Akhir Penyelenggaraan</label><input type="date" className={inputCls} value={formData.tanggal_akhir_kegiatan || ""} onChange={(e) => update("tanggal_akhir_kegiatan", e.target.value)} /></div>
             </div>
-            <FilterPesertaHotelPanel xlsxLoaded={xlsxLoaded} formData={formData} setFormData={setFormData} petugasData={petugasData} onFilterResult={(peserta) => { setSuratTugasPeserta(peserta); setSuratTugasFiltered(peserta.length > 0); }} />
+            <FilterPesertaHotelGelombangPanel
+              xlsxLoaded={xlsxLoaded}
+              formData={formData}
+              setFormData={setFormData}
+              petugasData={petugasData}
+              onFilterResult={(peserta) => {
+                setSuratTugasPeserta(peserta);
+                setSuratTugasFiltered(peserta.length > 0);
+              }}
+            />
           </>
         );
 
