@@ -4,7 +4,7 @@
 //
 // Templates di public/templates/
 //
-// Data petugas .xlsx: public/data/data-petugas.xlsx
+// Data petugas .xlsx: public/data/data-petugas.xlsx tes
 // ============================================================
 
 import React, { useState, useRef, useCallback } from "react";
@@ -1233,7 +1233,7 @@ function FilterPesertaPanel({
         <Filter size={14} /> Parameter Filter Peserta
       </p>
 
-      {/* Hotel Tes*/} 
+      {/* Hotel */}
       <div>
         <label className={labelCls}>Tempat</label>
         <select
