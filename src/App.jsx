@@ -1233,7 +1233,7 @@ function FilterPesertaPanel({
         <Filter size={14} /> Parameter Filter Peserta
       </p>
 
-      {/* Hotel */}
+      {/* Hotel Tes*/} 
       <div>
         <label className={labelCls}>Tempat</label>
         <select
