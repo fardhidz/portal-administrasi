@@ -254,6 +254,7 @@ function buildDaftarHadirTemplateData(formValues, peserta, namaInda, selectedFil
   };
   const hotelValue = cleanText(formValues.hotel || formValues.tempat || "").toLowerCase();
   const isHotelBwp = hotelValue.includes("bwp");
+  const includeKepalaBps = isHotelBwp && !isPmlPpl;
 
   return {
     tanggal_kegiatan: tanggalKegiatan,
@@ -271,7 +272,7 @@ function buildDaftarHadirTemplateData(formValues, peserta, namaInda, selectedFil
     kelas:            isPanitiaInda ? "-" : (formValues.kelas || ""),
     nama_inda:        isPanitiaInda ? "Ir. Tristiati, MA" : (namaInda || ""),
     keterangan_ttd:   isPanitiaInda ? "Kepala Sub Bagian Umum" : (isPmlPpl ? "Instruktur Daerah" : ""),
-    peserta: isHotelBwp ? [
+    peserta: includeKepalaBps ? [
       kepalaBpsEntry,
       ...sortDaftarHadirPeserta(peserta || []).map((p, idx) => ({
         no:        idx + 2,
@@ -1464,7 +1465,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
                     petugasData={petugasData}
                     mode="grouped"
                     selectedGroup={daftarHadirFilterGroup}
-                    prependRow={cleanText(formData.hotel).toLowerCase().includes("bwp") ? DAFTAR_HADIR_KEPALA_BPS : null}
+                    prependRow={(cleanText(formData.hotel || formData.tempat || "").toLowerCase().includes("bwp") && daftarHadirFilterGroup === "panitia-inda") ? DAFTAR_HADIR_KEPALA_BPS : null}
                     onFilterResult={(peserta, namaInda) => {
                       setDaftarHadirPeserta(peserta);
                       setDaftarHadirNamaInda(namaInda);
