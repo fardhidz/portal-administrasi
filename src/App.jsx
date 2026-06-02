@@ -175,11 +175,21 @@ function spellTerbilang(value) {
   return capitalizeWords(toWords(number));
 }
 
-const PARTICIPANT_ROLE_ORDER = { "KEPALA BPS JAKARTA TIMUR": -1, INDA: 0, PANITIA: 1, PML: 2, PPL: 3 };
+const PARTICIPANT_ROLE_ORDER = { INDA: 0, PANITIA: 1, PML: 2, PPL: 3 };
 function pesertaRoleOrder(jabatan) { return PARTICIPANT_ROLE_ORDER[upperText(jabatan)] ?? 99; }
 function sortPesertaByJabatanOrder(peserta = []) {
   return [...peserta].sort((a, b) => {
     const diff = pesertaRoleOrder(a.jabatan) - pesertaRoleOrder(b.jabatan);
+    if (diff !== 0) return diff;
+    return cleanText(a.nama).localeCompare(cleanText(b.nama), "id-ID", { sensitivity: "base" });
+  });
+}
+
+const DAFTAR_HADIR_PESERTA_ROLE_ORDER = { "KEPALA BPS JAKARTA TIMUR": -1, INDA: 0, PANITIA: 1, PML: 2, PPL: 3 };
+function pesertaRoleOrderDaftarHadir(jabatan) { return DAFTAR_HADIR_PESERTA_ROLE_ORDER[upperText(jabatan)] ?? 99; }
+function sortDaftarHadirPeserta(peserta = []) {
+  return [...peserta].sort((a, b) => {
+    const diff = pesertaRoleOrderDaftarHadir(a.jabatan) - pesertaRoleOrderDaftarHadir(b.jabatan);
     if (diff !== 0) return diff;
     return cleanText(a.nama).localeCompare(cleanText(b.nama), "id-ID", { sensitivity: "base" });
   });
@@ -212,6 +222,12 @@ const SURAT_TUGAS_TEMPLATE_URL                = "/templates/6. Surat Tugas.docx"
 
 // DAFTAR HADIR
 // PENTING: kelas diisi "-" untuk panitia-inda
+const DAFTAR_HADIR_KEPALA_BPS = {
+  nama:      "Widiastuti",
+  jabatan:   "Kepala BPS Kota Jakarta Timur",
+  wilTugas:  "BPS Kota Jakarta Timur",
+};
+
 function buildDaftarHadirTemplateData(formValues, peserta, namaInda, selectedFilterGroup = "") {
   const jamMulai        = normalizeJamIndonesia(formValues.jamMulai,   "07.30");
   const jamSelesai      = normalizeJamIndonesia(formValues.jamSelesai, "18.00");
@@ -220,6 +236,15 @@ function buildDaftarHadirTemplateData(formValues, peserta, namaInda, selectedFil
   const jamFmt          = `${jamMulai} - ${jamSelesai}`;
   const isPanitiaInda   = selectedFilterGroup === "panitia-inda";
   const isPmlPpl        = selectedFilterGroup === "pml-ppl";
+
+  const kepalaBpsEntry = {
+    no:        1,
+    nama:      "Widiastuti",
+    jabatan:   "Kepala BPS Kota Jakarta Timur",
+    kecamatan: "BPS Kota Jakarta Timur",
+    wil_tugas: "BPS Kota Jakarta Timur",
+    wilTugas:  "BPS Kota Jakarta Timur",
+  };
 
   return {
     tanggal_kegiatan: tanggalKegiatan,
@@ -237,14 +262,17 @@ function buildDaftarHadirTemplateData(formValues, peserta, namaInda, selectedFil
     kelas:            isPanitiaInda ? "-" : (formValues.kelas || ""),
     nama_inda:        isPanitiaInda ? "Ir. Tristiati, MA" : (namaInda || ""),
     keterangan_ttd:   isPanitiaInda ? "Kepala Sub Bagian Umum" : (isPmlPpl ? "Instruktur Daerah" : ""),
-    peserta: sortPesertaByJabatanOrder(peserta || []).map((p, idx) => ({
-      no:        idx + 1,
-      nama:      p.nama     || "",
-      jabatan:   p.jabatan  || "",
-      kecamatan: p.wilTugas || "",
-      wil_tugas: p.wilTugas || "",
-      wilTugas:  p.wilTugas || "",
-    })),
+    peserta: [
+      kepalaBpsEntry,
+      ...sortDaftarHadirPeserta(peserta || []).map((p, idx) => ({
+        no:        idx + 2,
+        nama:      p.nama     || "",
+        jabatan:   p.jabatan  || "",
+        kecamatan: p.wilTugas || "",
+        wil_tugas: p.wilTugas || "",
+        wilTugas:  p.wilTugas || "",
+      })),
+    ],
   };
 }
 
@@ -311,17 +339,22 @@ function buildSuratPernyataanKendaraanTemplateData(formValues, peserta) {
     tempat:        formValues.tempat || formValues.hotel || "",
     gelombang:     formValues.gelombang || "",
     kelas:         formValues.kelas || "-",
-    peserta: sorted.map((p, idx) => ({
-      no:         idx + 1,
-      nama:       p.nama || "",
-      nik:        p.nik || "",
-      jabatan:    p.jabatan || "",
-      pangkatGol: p.pangkatGol || "",
-      pangkat_gol:p.pangkatGol || "",
-      kecamatan:  p.wilTugas || "",
-      wil_tugas:  p.wilTugas || "",
-      wilTugas:   p.wilTugas || "",
-    })),
+    peserta: sorted.map((p, idx) => {
+      const pangkatGolRaw = cleanText(p.pangkatGol);
+      const pangkatGolValue = (!pangkatGolRaw || upperText(pangkatGolRaw) === "#N/A") ? "-" : pangkatGolRaw;
+      return {
+        no:         idx + 1,
+        nama:       p.nama || "",
+        nik:        p.nik || "",
+        jabatan:    p.jabatan || "",
+        pangkat:    pangkatGolValue,
+        pangkatGol: pangkatGolValue,
+        pangkat_gol:pangkatGolValue,
+        kecamatan:  p.wilTugas || "",
+        wil_tugas:  p.wilTugas || "",
+        wilTugas:   p.wilTugas || "",
+      };
+    }),
   };
 }
 
@@ -944,7 +977,7 @@ function PesertaTablePreview({ peserta }) {
 //                "panitia-inda" → sembunyikan Kelas, kelas akan "-" di dokumen
 //                "" → tampilkan Kelas (mode lain)
 
-function FilterPesertaPanel({ xlsxLoaded, formData, setFormData, petugasData, mode = "grouped", selectedGroup = "", onFilterResult }) {
+function FilterPesertaPanel({ xlsxLoaded, formData, setFormData, petugasData, mode = "grouped", selectedGroup = "", onFilterResult, prependRow = null }) {
   const inputCls = "w-full rounded-2xl border border-orange-100 bg-white/80 px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100 transition";
   const labelCls = "mb-2 block text-xs font-black uppercase tracking-[0.2em] text-slate-500";
 
@@ -998,8 +1031,9 @@ function FilterPesertaPanel({ xlsxLoaded, formData, setFormData, petugasData, mo
       hasil = sortPesertaByJabatanOrder(baseRows);
     }
 
+    const displayPeserta = hasil.length > 0 && prependRow ? [prependRow, ...hasil] : hasil;
     setNamaInda(inda?.nama || "");
-    setFilteredPeserta(hasil);
+    setFilteredPeserta(displayPeserta);
     setFiltered(true);
     onFilterResult(hasil, inda?.nama || "", selectedGroup);
   };
@@ -1408,6 +1442,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
                     petugasData={petugasData}
                     mode="grouped"
                     selectedGroup={daftarHadirFilterGroup}
+                    prependRow={DAFTAR_HADIR_KEPALA_BPS}
                     onFilterResult={(peserta, namaInda) => {
                       setDaftarHadirPeserta(peserta);
                       setDaftarHadirNamaInda(namaInda);
