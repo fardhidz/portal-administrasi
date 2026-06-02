@@ -175,7 +175,7 @@ function spellTerbilang(value) {
   return capitalizeWords(toWords(number));
 }
 
-const PARTICIPANT_ROLE_ORDER = { INDA: 0, PANITIA: 1, PML: 2, PPL: 3 };
+const PARTICIPANT_ROLE_ORDER = { "KEPALA BPS JAKARTA TIMUR": -1, INDA: 0, PANITIA: 1, PML: 2, PPL: 3 };
 function pesertaRoleOrder(jabatan) { return PARTICIPANT_ROLE_ORDER[upperText(jabatan)] ?? 99; }
 function sortPesertaByJabatanOrder(peserta = []) {
   return [...peserta].sort((a, b) => {
@@ -189,7 +189,7 @@ function sortPesertaByJabatanOrder(peserta = []) {
 
 const DAFTAR_HADIR_GROUPS = {
   "pml-ppl":      { label: "PML & PPL",      roles: ["PML", "PPL"] },
-  "panitia-inda": { label: "Panitia & Inda", roles: ["PANITIA", "INDA"] },
+  "panitia-inda": { label: "Panitia & Inda", roles: ["PANITIA", "INDA", "KEPALA BPS JAKARTA TIMUR"] },
 };
 
 function jabatanMasukGroup(jabatan, groupKey) {
