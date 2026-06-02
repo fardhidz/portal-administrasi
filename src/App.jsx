@@ -111,7 +111,21 @@ function formatTanggalIndonesia(dateStr) {
   if (!dateStr) return "";
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function formatTanggalLengkapIndonesia(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
   return d.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
+function formatHariIndonesia(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("id-ID", { weekday: "long" });
 }
 
 function calcDurationDays(startDate, endDate) {
@@ -202,12 +216,14 @@ function buildDaftarHadirTemplateData(formValues, peserta, namaInda, selectedFil
   const jamMulai        = normalizeJamIndonesia(formValues.jamMulai,   "07.30");
   const jamSelesai      = normalizeJamIndonesia(formValues.jamSelesai, "18.00");
   const tanggalFmt      = formatTanggalIndonesia(formValues.tanggal);
+  const tanggalKegiatan = formatTanggalLengkapIndonesia(formValues.tanggal);
   const jamFmt          = `${jamMulai} - ${jamSelesai}`;
   const isPanitiaInda   = selectedFilterGroup === "panitia-inda";
   const isPmlPpl        = selectedFilterGroup === "pml-ppl";
 
   return {
-    tanggal_kegiatan: tanggalFmt,
+    tanggal_kegiatan: tanggalKegiatan,
+    tanggal_aja:      tanggalFmt,
     hari_tanggal:     tanggalFmt,
     tanggal:          tanggalFmt,
     jam_mulai:        jamMulai,
@@ -252,9 +268,11 @@ async function generateDaftarHadir(templateUrl, formValues, peserta, namaInda, s
 // TANDA TERIMA
 function buildTandaTerimaTemplateData(formValues, peserta) {
   const tanggalFmt = formatTanggalIndonesia(formValues.tanggal);
+  const tanggalKegiatan = formatTanggalLengkapIndonesia(formValues.tanggal);
   const filtered   = sortPesertaByJabatanOrder((peserta || []).filter(p => ["PML", "PPL"].includes(upperText(p.jabatan))));
   return {
-    tanggal_kegiatan: tanggalFmt,
+    tanggal_kegiatan: tanggalKegiatan,
+    tanggal_aja:      tanggalFmt,
     tanggal:          tanggalFmt,
     tempat:           formValues.tempat || formValues.hotel || "",
     gelombang:        formValues.gelombang || "",
@@ -287,6 +305,7 @@ function buildSuratPernyataanKendaraanTemplateData(formValues, peserta) {
   const sorted     = sortPesertaByJabatanOrder(peserta || []);
 
   return {
+    tanggal_aja:   tanggalFmt,
     tanggal_surat: tanggalFmt,
     tanggal:       tanggalFmt,
     tempat:        formValues.tempat || formValues.hotel || "",
@@ -326,9 +345,10 @@ function buildPengeluaranRiilTemplateData(formValues, peserta = []) {
   const sorted    = sortPesertaByJabatanOrder(peserta || []);
   const biayaTotal = 510000 * sorted.length;
   return {
-    tanggal_surat:   formatTanggalIndonesia(formValues.tanggal_surat),
-    biaya_total:     formatRupiah(biayaTotal),
-    biaya_terbilang: `${spellTerbilang(biayaTotal)} rupiah`,
+    tanggal_aja:      formatTanggalIndonesia(formValues.tanggal_surat || ""),
+    tanggal_surat:    formatTanggalIndonesia(formValues.tanggal_surat || ""),
+    biaya_total:      formatRupiah(biayaTotal),
+    biaya_terbilang:  `${spellTerbilang(biayaTotal)} rupiah`,
     peserta: sorted.map((p, idx) => {
       const isPanitiaInda = ["PANITIA", "INDA"].includes(upperText(p.jabatan));
       const pangkatGolRaw = cleanText(p.pangkatGol);
@@ -359,7 +379,8 @@ function buildSpjTemplateData(formValues, peserta = []) {
   const n = sorted.length;
   const total = 510000 * n;
   return {
-    tanggal_pelunasan: formatTanggalIndonesia(formValues.tanggal_pelunasan),
+    tanggal_aja:       formatTanggalIndonesia(formValues.tanggal_pelunasan || ""),
+    tanggal_pelunasan: formatTanggalIndonesia(formValues.tanggal_pelunasan || ""),
     tempat: formValues.tempat || formValues.hotel || "",
     gelombang: formValues.gelombang || "",
     kelas: formValues.kelas || "-",
@@ -406,14 +427,15 @@ async function generateSpj(templateUrl, formValues, peserta) {
 // SPD
 function buildSpdTemplateData(formValues, peserta = []) {
   const sorted       = sortPesertaByJabatanOrder(peserta || []);
-  const tanggalAwal  = formatTanggalIndonesia(formValues.tanggal_awal_kegiatan);
-  const tanggalAkhir = formatTanggalIndonesia(formValues.tanggal_akhir_kegiatan);
+  const tanggalAwal  = formatTanggalIndonesia(formValues.tanggal_awal_kegiatan || "");
+  const tanggalAkhir = formatTanggalIndonesia(formValues.tanggal_akhir_kegiatan || "");
   const lamaHari     = calcDurationDays(formValues.tanggal_awal_kegiatan, formValues.tanggal_akhir_kegiatan);
-  const tanggalSurat = formatTanggalIndonesia(formValues.tanggal_surat || formValues.tanggal);
+  const tanggalSurat = formatTanggalIndonesia(formValues.tanggal_surat || formValues.tanggal || "");
 
   return {
     nomor_dokumen: formValues.nomor_dokumen || formValues.nomor || "",
     nomor: formValues.nomor_dokumen || formValues.nomor || "",
+    tanggal_aja: tanggalSurat,
     tanggal_surat: tanggalSurat,
     tanggal: tanggalSurat,
     tempat: formValues.tempat || formValues.hotel || "",
@@ -480,14 +502,15 @@ async function generateSpd(mainUrl, attachmentUrl, formValues, peserta) {
 // SURAT TUGAS
 function buildSuratTugasTemplateData(formValues, peserta = []) {
   const sorted       = sortPesertaByJabatanOrder(peserta || []);
-  const tanggalAwal  = formatTanggalIndonesia(formValues.tanggal_awal_kegiatan);
-  const tanggalAkhir = formatTanggalIndonesia(formValues.tanggal_akhir_kegiatan);
+  const tanggalAwal  = formatTanggalIndonesia(formValues.tanggal_awal_kegiatan || "");
+  const tanggalAkhir = formatTanggalIndonesia(formValues.tanggal_akhir_kegiatan || "");
   const lamaHari     = calcDurationDays(formValues.tanggal_awal_kegiatan, formValues.tanggal_akhir_kegiatan) || "";
-  const tanggalSurat = formatTanggalIndonesia(formValues.tanggal_surat);
+  const tanggalSurat = formatTanggalIndonesia(formValues.tanggal_surat || "");
 
   return {
     nomor_surat:            formValues.nomor_surat || "",
     nomor:                  formValues.nomor_surat || "",
+    tanggal_aja:            tanggalSurat,
     tanggal_surat:          tanggalSurat,
     tanggal:                tanggalSurat,
     tempat:                 formValues.tempat || formValues.hotel || "",
