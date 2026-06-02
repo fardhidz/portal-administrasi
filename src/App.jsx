@@ -121,6 +121,13 @@ function formatTanggalLengkapIndonesia(dateStr) {
   return d.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 }
 
+function formatTanggalBulanIndonesia(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("id-ID", { day: "numeric", month: "long" });
+}
+
 function formatHariIndonesia(dateStr) {
   if (!dateStr) return "";
   const d = new Date(dateStr);
@@ -420,9 +427,15 @@ function buildSpjTemplateData(formValues, peserta = []) {
   const sorted = sortPesertaByJabatanOrder(peserta || []);
   const n = sorted.length;
   const total = 510000 * n;
+  const tanggalAwal = formatTanggalBulanIndonesia(formValues.tanggal_awal_kegiatan || "");
+  const tanggalAkhir = formatTanggalBulanIndonesia(formValues.tanggal_akhir_kegiatan || "");
   return {
     tanggal_aja:       formatTanggalIndonesia(formValues.tanggal_pelunasan || ""),
     tanggal_pelunasan: formatTanggalIndonesia(formValues.tanggal_pelunasan || ""),
+    tanggal_awal:      tanggalAwal,
+    tanggal_akhir:     tanggalAkhir,
+    tanggal_awal_kegiatan: tanggalAwal,
+    tanggal_akhir_kegiatan: tanggalAkhir,
     tempat: formValues.tempat || formValues.hotel || "",
     gelombang: formValues.gelombang || "",
     kelas: formValues.kelas || "-",
@@ -1538,6 +1551,17 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
             <div>
               <label className={labelCls}>Tanggal Pelunasan</label>
               <input type="date" className={inputCls} value={formData.tanggal_pelunasan || ""} onChange={(e) => update("tanggal_pelunasan", e.target.value)} />
+            </div>
+
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div>
+                <label className={labelCls}>Tanggal Awal</label>
+                <input type="date" className={inputCls} value={formData.tanggal_awal_kegiatan || ""} onChange={(e) => update("tanggal_awal_kegiatan", e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Tanggal Akhir</label>
+                <input type="date" className={inputCls} value={formData.tanggal_akhir_kegiatan || ""} onChange={(e) => update("tanggal_akhir_kegiatan", e.target.value)} />
+              </div>
             </div>
 
             {/* ── Pilih kelompok peserta SPJ ── */}
