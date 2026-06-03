@@ -348,14 +348,38 @@ async function generateTandaTerima(templateUrl, formValues, peserta) {
 function buildSuratPernyataanKendaraanTemplateData(formValues, peserta) {
   const tanggalFmt = formatTanggalIndonesia(formValues.tanggal_surat || formValues.tanggal);
   const sorted     = sortPesertaByJabatanOrder(peserta || []);
+  const hotelValue = cleanText(formValues.tempat || formValues.hotel || "").toLowerCase();
+
+  // default values (can be overridden by hotel-specific hard-coded values)
+  let nomor_surtug_val = formValues.nomor_surat || formValues.nomor || "";
+  let tanggal_kegiatan_val = formatTanggalLengkapIndonesia(formValues.tanggal) || "";
+  let tanggal_surtug_val = tanggalFmt;
+
+  // Hard-coded mappings for Super Kendis based on venue/hotel
+  if (hotelValue.includes("bwp")) {
+    nomor_surtug_val = "B-999.1/3172/SS.220/2026";
+    tanggal_kegiatan_val = "1 Juni - 3 Juni 2026";
+    tanggal_surtug_val = "29 Mei 2026";
+  } else if (hotelValue.includes("park")) {
+    nomor_surtug_val = "B-999.3/3172/SS.220/2026";
+    tanggal_kegiatan_val = "1 Juni - 3 Juni 2026";
+    tanggal_surtug_val = "29 Mei 2026";
+  } else if (hotelValue.includes("harper") || hotelValue.includes("harper")) {
+    nomor_surtug_val = "B-999.2/3172/SS.220/2026";
+    tanggal_kegiatan_val = "1 Juni - 3 Juni 2026";
+    tanggal_surtug_val = "29 Mei 2026";
+  }
 
   return {
-    tanggal_aja:   tanggalFmt,
-    tanggal_surat: tanggalFmt,
-    tanggal:       tanggalFmt,
-    tempat:        formValues.tempat || formValues.hotel || "",
-    gelombang:     formValues.gelombang || "",
-    kelas:         formValues.kelas || "-",
+    tanggal_kegiatan: tanggal_kegiatan_val,
+    nomor_surtug:     nomor_surtug_val,
+    tanggal_surtug:   tanggal_surtug_val,
+    tanggal_aja:      tanggalFmt,
+    tanggal_surat:    tanggalFmt,
+    tanggal:          tanggalFmt,
+    tempat:           formValues.tempat || formValues.hotel || "",
+    gelombang:        formValues.gelombang || "",
+    kelas:            formValues.kelas || "-",
     peserta: sorted.map((p, idx) => {
       const pangkatGolRaw = cleanText(p.pangkatGol);
       const pangkatGolValue = (!pangkatGolRaw || upperText(pangkatGolRaw) === "#N/A") ? "-" : pangkatGolRaw;
