@@ -1270,6 +1270,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
   const [tandaTerimaFiltered,     setTandaTerimaFiltered]     = useState(false);
   const [suratPernyataanPeserta,  setSuratPernyataanPeserta]  = useState([]);
   const [suratPernyataanFiltered, setSuratPernyataanFiltered] = useState(false);
+  const [suratPernyataanFilterGroup, setSuratPernyataanFilterGroup] = useState("");
   const [suratTugasPeserta,       setSuratTugasPeserta]       = useState([]);
   const [suratTugasFiltered,      setSuratTugasFiltered]      = useState(false);
   const [spjPeserta,              setSpjPeserta]              = useState([]);
@@ -1280,6 +1281,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
   const [spdFiltered,             setSpdFiltered]             = useState(false);
   const [pengeluaranPeserta,      setPengeluaranPeserta]      = useState([]);
   const [pengeluaranFiltered,     setPengeluaranFiltered]     = useState(false);
+  const [pengeluaranFilterGroup,  setPengeluaranFilterGroup]  = useState("");
 
   React.useEffect(() => {
     if (docType.id === "daftar-hadir" && !formData.jamMulai && !formData.jamSelesai) {
@@ -1325,14 +1327,20 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
     }
 
     if (docType.id === "surat-pernyataan-kendaraan") {
+      if (!suratPernyataanFilterGroup) {
+        alert("Pilih kelompok peserta (PML & PPL atau Panitia & Inda) terlebih dahulu.");
+        return;
+      }
       if (!suratPernyataanFiltered || suratPernyataanPeserta.length === 0) { alert("Tampilkan peserta terlebih dahulu."); return; }
+      const isPanitiaInda = suratPernyataanFilterGroup === "panitia-inda";
       onPreview({
         formValues: {
           tanggal_surat: formData.tanggal_surat || "",
           tempat:        formData.tempat || formData.hotel || "",
           hotel:         formData.hotel || "",
           gelombang:     formData.gelombang || "",
-          kelas:         "-",
+          kelompokPeserta: suratPernyataanFilterGroup === "panitia-inda" ? "Panitia & Inda" : "Petugas PML & PPL",
+          kelas:         isPanitiaInda ? "-" : (formData.kelas || "-"),
         },
         peserta: suratPernyataanPeserta,
       });
@@ -1340,8 +1348,21 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
     }
 
     if (docType.id === "pengeluaran-riil") {
+      if (!pengeluaranFilterGroup) {
+        alert("Pilih kelompok peserta (PML & PPL atau Panitia & Inda) terlebih dahulu.");
+        return;
+      }
       if (!pengeluaranFiltered || pengeluaranPeserta.length === 0) { alert("Tampilkan peserta terlebih dahulu."); return; }
-      onPreview({ formValues: { tanggal_surat: formData.tanggal_surat || "", hotel: formData.hotel || "" }, peserta: pengeluaranPeserta });
+      const isPanitiaInda = pengeluaranFilterGroup === "panitia-inda";
+      onPreview({
+        formValues: {
+          tanggal_surat: formData.tanggal_surat || "",
+          hotel:         formData.hotel || "",
+          kelompokPeserta: pengeluaranFilterGroup === "panitia-inda" ? "Panitia & Inda" : "Petugas PML & PPL",
+          kelas:         isPanitiaInda ? "-" : (formData.kelas || "-"),
+        },
+        peserta: pengeluaranPeserta,
+      });
       return;
     }
 
@@ -1544,16 +1565,68 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
               <label className={labelCls}>Tanggal Surat</label>
               <input type="date" className={inputCls} value={formData.tanggal_surat || ""} onChange={(e) => update("tanggal_surat", e.target.value)} />
             </div>
-            <FilterPesertaHotelGelombangPanel
-              xlsxLoaded={xlsxLoaded}
-              formData={formData}
-              setFormData={setFormData}
-              petugasData={petugasData}
-              onFilterResult={(peserta) => {
-                setSuratPernyataanPeserta(peserta);
-                setSuratPernyataanFiltered(peserta.length > 0);
-              }}
-            />
+
+            <div>
+              <p className={labelCls}>Kelompok Peserta</p>
+              <div className="flex gap-3">
+                {Object.entries(DAFTAR_HADIR_GROUPS).map(([key, grp]) => (
+                  <button key={key} type="button"
+                    onClick={() => {
+                      setSuratPernyataanFilterGroup(key);
+                      setSuratPernyataanFiltered(false);
+                      setSuratPernyataanPeserta([]);
+                      if (key === "panitia-inda") setFormData((prev) => ({ ...prev, kelas: "" }));
+                    }}
+                    className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-black transition ${suratPernyataanFilterGroup === key ? "bg-orange-600 text-white shadow-lg shadow-orange-500/20" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>
+                    {key === "pml-ppl" ? <Users size={15} /> : <Briefcase size={15} />}
+                    {key === "pml-ppl" ? "Petugas PML & PPL" : grp.label}
+                  </button>
+                ))}
+              </div>
+              {!suratPernyataanFilterGroup && (
+                <p className="mt-2 text-xs font-semibold text-slate-400">Pilih kelompok peserta agar Super Kendis dapat dibagi menjadi PML/PPL atau Panitia/Inda.</p>
+              )}
+            </div>
+
+            <AnimatePresence mode="wait">
+              {suratPernyataanFilterGroup && (
+                <motion.div key={suratPernyataanFilterGroup} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+                  <FilterPesertaPanel
+                    xlsxLoaded={xlsxLoaded}
+                    formData={formData}
+                    setFormData={setFormData}
+                    petugasData={petugasData}
+                    mode="grouped"
+                    selectedGroup={suratPernyataanFilterGroup}
+                    onFilterResult={(peserta) => {
+                      setSuratPernyataanPeserta(peserta);
+                      setSuratPernyataanFiltered(peserta.length > 0);
+                    }}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {suratPernyataanFiltered && suratPernyataanFilterGroup && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                className="flex items-center justify-between rounded-2xl border border-orange-100 bg-white/80 px-4 py-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-wider text-slate-500">Kelompok Super Kendis</p>
+                  <p className="mt-0.5 font-bold text-slate-800">
+                    {suratPernyataanFilterGroup === "panitia-inda" ? "Panitia & Inda" : "Petugas PML & PPL"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <p className="text-xs font-semibold text-slate-400">Kelas di dokumen</p>
+                    <p className="font-black text-orange-600">
+                      {suratPernyataanFilterGroup === "panitia-inda" ? "-" : (formData.kelas || "—")}
+                    </p>
+                  </div>
+                  <Check size={18} className="text-green-500" />
+                </div>
+              </motion.div>
+            )}
           </>
         );
 
@@ -1565,7 +1638,67 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
               <label className={labelCls}>Tanggal Surat</label>
               <input type="date" className={inputCls} value={formData.tanggal_surat || ""} onChange={(e) => update("tanggal_surat", e.target.value)} />
             </div>
-            <FilterPesertaHotelGelombangPanel xlsxLoaded={xlsxLoaded} formData={formData} setFormData={setFormData} petugasData={petugasData} onFilterResult={(peserta) => { setPengeluaranPeserta(peserta); setPengeluaranFiltered(peserta.length > 0); }} />
+            <div>
+              <p className={labelCls}>Kelompok Peserta</p>
+              <div className="flex gap-3">
+                {Object.entries(DAFTAR_HADIR_GROUPS).map(([key, grp]) => (
+                  <button key={key} type="button"
+                    onClick={() => {
+                      setPengeluaranFilterGroup(key);
+                      setPengeluaranFiltered(false);
+                      setPengeluaranPeserta([]);
+                      if (key === "panitia-inda") setFormData((prev) => ({ ...prev, kelas: "" }));
+                    }}
+                    className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-black transition ${pengeluaranFilterGroup === key ? "bg-orange-600 text-white shadow-lg shadow-orange-500/20" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>
+                    {key === "pml-ppl" ? <Users size={15} /> : <Briefcase size={15} />}
+                    {key === "pml-ppl" ? "Petugas PML & PPL" : grp.label}
+                  </button>
+                ))}
+              </div>
+              {!pengeluaranFilterGroup && (
+                <p className="mt-2 text-xs font-semibold text-slate-400">Pilih kelompok peserta agar DPR dapat dipisah menjadi PML/PPL atau Panitia/Inda.</p>
+              )}
+            </div>
+
+            <AnimatePresence mode="wait">
+              {pengeluaranFilterGroup && (
+                <motion.div key={pengeluaranFilterGroup} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+                  <FilterPesertaPanel
+                    xlsxLoaded={xlsxLoaded}
+                    formData={formData}
+                    setFormData={setFormData}
+                    petugasData={petugasData}
+                    mode="grouped"
+                    selectedGroup={pengeluaranFilterGroup}
+                    onFilterResult={(peserta) => {
+                      setPengeluaranPeserta(peserta);
+                      setPengeluaranFiltered(peserta.length > 0);
+                    }}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {pengeluaranFiltered && pengeluaranFilterGroup && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                className="flex items-center justify-between rounded-2xl border border-orange-100 bg-white/80 px-4 py-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-wider text-slate-500">Kelompok DPR</p>
+                  <p className="mt-0.5 font-bold text-slate-800">
+                    {pengeluaranFilterGroup === "panitia-inda" ? "Panitia & Inda" : "Petugas PML & PPL"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <p className="text-xs font-semibold text-slate-400">Kelas di dokumen</p>
+                    <p className="font-black text-orange-600">
+                      {pengeluaranFilterGroup === "panitia-inda" ? "-" : (formData.kelas || "—")}
+                    </p>
+                  </div>
+                  <Check size={18} className="text-green-500" />
+                </div>
+              </motion.div>
+            )}
           </>
         );
 
