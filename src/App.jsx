@@ -35,12 +35,12 @@ function normalizeRowHeaders(row) {
   const normalized = {};
   Object.entries(row).forEach(([k, v]) => {
     const key = String(k ?? "").trim().toLowerCase().replace(/\s+/g, " ");
-    normalized[key] = typeof v === "string" ? v.trim() : v;
+    normalized[key] = String(v ?? "").trim();
   });
   return {
     no:           normalized["no"] ?? "",
     nama:         normalized["nama"] ?? normalized["nama lengkap"] ?? normalized["nama_lengkap"] ?? normalized["nama-lengkap"] ?? "",
-    nik:          normalized["nik"] ?? "",
+    nik:          normalized["nik"] ?? normalized["nip"] ?? "",
     asal:         normalized["asal"] ?? "",
     wilTugas:     normalized["wil. tugas"] ?? normalized["wil tugas"] ?? normalized["wil.tugas"] ?? normalized["wilayah tugas"] ?? "",
     jabatan:      normalized["jabatan"] ?? normalized["posisi"] ?? "",
@@ -58,7 +58,7 @@ function normalizeRowHeaders(row) {
 function parseXlsxData(arrayBuffer) {
   const workbook = XLSX.read(arrayBuffer, { type: "array" });
   const sheet = workbook.Sheets[workbook.SheetNames[5]];
-  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
   return raw.map(normalizeRowHeaders).filter(r => r.nama !== "" || r.nik !== "" || r.sobatId !== "");
 }
 
@@ -90,7 +90,7 @@ async function loadGoogleSheet(csvUrl) {
   const text = await response.text();
   const workbook = XLSX.read(text, { type: "string" });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
   const rawHeaders = raw.length ? Object.keys(raw[0]).map((h) => String(h ?? "").trim()) : [];
   const data = raw.map(normalizeRowHeaders).filter((r) => r.nama !== "" || r.nik !== "" || r.sobatId !== "");
   return { data, rawHeaders };
