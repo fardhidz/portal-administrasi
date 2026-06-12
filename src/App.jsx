@@ -231,7 +231,7 @@ const SURAT_TUGAS_TEMPLATE_URL                = "/templates/6. Surat Tugas.docx"
 // PENTING: kelas diisi "-" untuk panitia-inda
 const DAFTAR_HADIR_KEPALA_BPS = {
   nama:      "Widiastuti",
-  jabatan:   "Kepala BPS Kota Jakarta Timur",
+  jabatan:   "Penanggung Jawab",
   wilTugas:  "BPS Kota Jakarta Timur",
 };
 
@@ -244,17 +244,43 @@ function buildDaftarHadirTemplateData(formValues, peserta, namaInda, selectedFil
   const isPanitiaInda   = selectedFilterGroup === "panitia-inda";
   const isPmlPpl        = selectedFilterGroup === "pml-ppl";
 
-  const kepalaBpsEntry = {
+  const hotelValue = cleanText(formValues.hotel || formValues.tempat || "").toLowerCase();
+  const isHotelBwp = hotelValue.includes("bwp");
+  const gelombangValue = cleanText(formValues.gelombang || "");
+
+  let kepalaBpsEntry = {
     no:        1,
     nama:      "Widiastuti",
-    jabatan:   "Kepala BPS Kota Jakarta Timur",
+    jabatan:   "Penanggung Jawab",
     kecamatan: "BPS Kota Jakarta Timur",
     wil_tugas: "BPS Kota Jakarta Timur",
     wilTugas:  "BPS Kota Jakarta Timur",
   };
-  const hotelValue = cleanText(formValues.hotel || formValues.tempat || "").toLowerCase();
-  const isHotelBwp = hotelValue.includes("bwp");
-  const includeKepalaBps = isHotelBwp && !isPmlPpl;
+
+  // Khusus untuk gelombang 4: atur kepala BPS berdasarkan tempat
+  if (gelombangValue === "4") {
+    if (hotelValue.includes("bwp")) {
+      kepalaBpsEntry = {
+        no:        1,
+        nama:      "Budi Utami",
+        jabatan:   "Penanggung Jawab",
+        kecamatan: "BPS Kota Jakarta Timur",
+        wil_tugas: "BPS Kota Jakarta Timur",
+        wilTugas:  "BPS Kota Jakarta Timur",
+      };
+    } else if (hotelValue.includes("stis")) {
+      kepalaBpsEntry = {
+        no:        1,
+        nama:      "Widiastuti",
+        jabatan:   "Penanggung Jawab",
+        kecamatan: "BPS Kota Jakarta Timur",
+        wil_tugas: "BPS Kota Jakarta Timur",
+        wilTugas:  "BPS Kota Jakarta Timur",
+      };
+    }
+  }
+
+  const includeKepalaBps = (isHotelBwp || (hotelValue.includes("stis") && gelombangValue === "4")) && !isPmlPpl;
 
   return {
     tanggal_kegiatan: tanggalKegiatan,
@@ -1039,11 +1065,11 @@ function FilterPesertaPanel({ xlsxLoaded, formData, setFormData, petugasData, mo
   const selectedKelas     = cleanText(formData.kelas);
   const selectedGelombang = cleanText(formData.gelombang);
 
-  const hotelOptions = React.useMemo(() => uniqueSorted(petugasData.map((p) => p.hotel)), [petugasData]);
-  const gelombangOptions = React.useMemo(() =>
-    uniqueSorted(petugasData.filter((p) => !selectedHotel || cleanText(p.hotel) === selectedHotel).map((p) => p.gelombang)),
-    [petugasData, selectedHotel]
-  );
+  const hotelOptions = React.useMemo(() => uniqueSorted([...petugasData.map((p) => p.hotel), "STIS"]), [petugasData]);
+  const gelombangOptions = React.useMemo(() => {
+    if (cleanText(selectedHotel).toLowerCase() === "stis") return ["4"];
+    return uniqueSorted(petugasData.filter((p) => !selectedHotel || cleanText(p.hotel) === selectedHotel).map((p) => p.gelombang));
+  }, [petugasData, selectedHotel]);
   const kelasOptions = React.useMemo(() =>
     uniqueSorted(petugasData
       .filter((p) => !selectedHotel || cleanText(p.hotel) === selectedHotel)
@@ -1168,7 +1194,7 @@ function FilterPesertaHotelPanel({ xlsxLoaded, formData, setFormData, petugasDat
   const [filtered, setFiltered]               = useState(false);
   const [filteredPeserta, setFilteredPeserta] = useState([]);
   const selectedHotel = cleanText(formData.hotel);
-  const hotelOptions  = React.useMemo(() => uniqueSorted(petugasData.map((p) => p.hotel)), [petugasData]);
+  const hotelOptions  = React.useMemo(() => uniqueSorted([...petugasData.map((p) => p.hotel), "STIS"]), [petugasData]);
 
   const runFilter = () => {
     if (!xlsxLoaded) { alert("Data petugas belum dimuat."); return; }
@@ -1209,11 +1235,11 @@ function FilterPesertaHotelGelombangPanel({ xlsxLoaded, formData, setFormData, p
   const [filteredPeserta, setFilteredPeserta] = useState([]);
   const selectedHotel     = cleanText(formData.hotel);
   const selectedGelombang = cleanText(formData.gelombang);
-  const hotelOptions      = React.useMemo(() => uniqueSorted(petugasData.map((p) => p.hotel)), [petugasData]);
-  const gelombangOptions  = React.useMemo(() =>
-    uniqueSorted(petugasData.filter((p) => !selectedHotel || cleanText(p.hotel) === selectedHotel).map((p) => p.gelombang)),
-    [petugasData, selectedHotel]
-  );
+  const hotelOptions      = React.useMemo(() => uniqueSorted([...petugasData.map((p) => p.hotel), "STIS"]), [petugasData]);
+  const gelombangOptions  = React.useMemo(() => {
+    if (cleanText(selectedHotel).toLowerCase() === "stis") return ["4"];
+    return uniqueSorted(petugasData.filter((p) => !selectedHotel || cleanText(p.hotel) === selectedHotel).map((p) => p.gelombang));
+  }, [petugasData, selectedHotel]);
 
   const runFilter = () => {
     if (!xlsxLoaded) { alert("Data petugas belum dimuat."); return; }
@@ -1510,7 +1536,15 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
                     petugasData={petugasData}
                     mode="grouped"
                     selectedGroup={daftarHadirFilterGroup}
-                    prependRow={(cleanText(formData.hotel || formData.tempat || "").toLowerCase().includes("bwp") && daftarHadirFilterGroup === "panitia-inda") ? DAFTAR_HADIR_KEPALA_BPS : null}
+                    prependRow={(() => {
+                      const hotelLower = cleanText(formData.hotel || formData.tempat || "").toLowerCase();
+                      const gelombangVal = cleanText(formData.gelombang || "");
+                      if (daftarHadirFilterGroup === "panitia-inda" && gelombangVal === "4") {
+                        if (hotelLower.includes("bwp")) return { nama: "Budi Utami", jabatan: "Penanggung Jawab", wilTugas: "BPS Kota Jakarta Timur" };
+                        if (hotelLower.includes("stis")) return { nama: "Widiastuti", jabatan: "Kepala BPS Kota Jakarta Timur", wilTugas: "BPS Kota Jakarta Timur" };
+                      }
+                      return null;
+                    })()}
                     onFilterResult={(peserta, namaInda) => {
                       setDaftarHadirPeserta(peserta);
                       setDaftarHadirNamaInda(namaInda);
