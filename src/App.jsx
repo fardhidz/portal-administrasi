@@ -218,6 +218,7 @@ function jabatanMasukGroup(jabatan, groupKey) {
 
 const DAFTAR_HADIR_TEMPLATE_URL               = "/templates/1. Daftar Hadir Pelatihan SE2026.docx";
 const TANDA_TERIMA_TEMPLATE_URL               = "/templates/2. Tanda Terima Perlengkapan SE2026.docx";
+const TANDA_TERIMA_LAPANGAN_TEMPLATE_URL      = "/templates/2. Tanda Terima Perlengkapan SE2026 - Copy.docx";
 const SURAT_PERNYATAAN_KENDARAAN_TEMPLATE_URL = "/templates/3. Super Kendis Pelatihan SE2026.docx";
 const PENGELUARAN_RIIL_TEMPLATE_URL           = "/templates/4. DPR_Pelatihan SE 2026.docx";
 const SPJ_TEMPLATE_URL                        = "/templates/5. SPJ Pelatihan_SE26.docx";
@@ -881,7 +882,7 @@ export default function PortalAdministrasiSE2026() {
                       <Printer size={16} /> Cetak
                     </button>
                     {selectedDoc?.id === "daftar-hadir" && <GenerateDocxButton onGenerate={() => generateDaftarHadir(DAFTAR_HADIR_TEMPLATE_URL, previewData.formValues, previewData.peserta, previewData.namaInda, previewData.selectedFilterGroup)} />}
-                    {selectedDoc?.id === "tanda-terima" && <GenerateDocxButton onGenerate={() => generateTandaTerima(TANDA_TERIMA_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
+                    {selectedDoc?.id === "tanda-terima" && <GenerateDocxButton onGenerate={() => generateTandaTerima(previewData.tandaTerimaType === "lapangan" ? TANDA_TERIMA_LAPANGAN_TEMPLATE_URL : TANDA_TERIMA_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
                     {selectedDoc?.id === "surat-pernyataan-kendaraan" && <GenerateDocxButton onGenerate={() => generateSuratPernyataanKendaraan(SURAT_PERNYATAAN_KENDARAAN_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
                     {selectedDoc?.id === "pengeluaran-riil" && <GenerateDocxButton onGenerate={() => generatePengeluaranRiil(PENGELUARAN_RIIL_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
                     {selectedDoc?.id === "spj" && <GenerateDocxButton onGenerate={() => generateSpj(SPJ_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
@@ -1294,6 +1295,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
 
   const [tandaTerimaPeserta,      setTandaTerimaPeserta]      = useState([]);
   const [tandaTerimaFiltered,     setTandaTerimaFiltered]     = useState(false);
+  const [tandaTerimaType,         setTandaTerimaType]         = useState(""); // "pelatihan" atau "lapangan"
   const [suratPernyataanPeserta,  setSuratPernyataanPeserta]  = useState([]);
   const [suratPernyataanFiltered, setSuratPernyataanFiltered] = useState(false);
   const [suratPernyataanFilterGroup, setSuratPernyataanFilterGroup] = useState("");
@@ -1347,8 +1349,9 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
     }
 
     if (docType.id === "tanda-terima") {
+      if (!tandaTerimaType) { alert("Pilih jenis tanda terima terlebih dahulu."); return; }
       if (!tandaTerimaFiltered || tandaTerimaPeserta.length === 0) { alert("Tampilkan peserta terlebih dahulu."); return; }
-      onPreview({ formValues: { ...formData, tempat: formData.tempat || formData.hotel || "" }, peserta: tandaTerimaPeserta });
+      onPreview({ formValues: { ...formData, tempat: formData.tempat || formData.hotel || "" }, peserta: tandaTerimaPeserta, tandaTerimaType: tandaTerimaType });
       return;
     }
 
@@ -1584,10 +1587,32 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
         return (
           <>
             <div>
-              <label className={labelCls}>Tanggal Kegiatan</label>
-              <input type="date" className={inputCls} value={formData.tanggal || ""} onChange={(e) => update("tanggal", e.target.value)} />
+              <p className={labelCls}>Jenis Tanda Terima</p>
+              <div className="flex gap-3">
+                <button type="button"
+                  onClick={() => { setTandaTerimaType("pelatihan"); setTandaTerimaFiltered(false); setTandaTerimaPeserta([]); }}
+                  className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-black transition ${tandaTerimaType === "pelatihan" ? "bg-orange-600 text-white shadow-lg shadow-orange-500/20" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>
+                  <Briefcase size={15} /> Tanda Terima Perlengkapan Pelatihan
+                </button>
+                <button type="button"
+                  onClick={() => { setTandaTerimaType("lapangan"); setTandaTerimaFiltered(false); setTandaTerimaPeserta([]); }}
+                  className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-black transition ${tandaTerimaType === "lapangan" ? "bg-orange-600 text-white shadow-lg shadow-orange-500/20" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>
+                  <Briefcase size={15} /> Tanda Terima Perlengkapan Lapangan
+                </button>
+              </div>
+              {!tandaTerimaType && (
+                <p className="mt-2 text-xs font-semibold text-slate-400">Pilih jenis tanda terima terlebih dahulu.</p>
+              )}
             </div>
-            <FilterPesertaPanel xlsxLoaded={xlsxLoaded} formData={formData} setFormData={setFormData} petugasData={petugasData} mode="all" selectedGroup="" onFilterResult={(peserta) => { setTandaTerimaPeserta(peserta); setTandaTerimaFiltered(peserta.length > 0); }} />
+            {tandaTerimaType && (
+              <>
+                <div>
+                  <label className={labelCls}>Tanggal Kegiatan</label>
+                  <input type="date" className={inputCls} value={formData.tanggal || ""} onChange={(e) => update("tanggal", e.target.value)} />
+                </div>
+                <FilterPesertaPanel xlsxLoaded={xlsxLoaded} formData={formData} setFormData={setFormData} petugasData={petugasData} mode="all" selectedGroup="" onFilterResult={(peserta) => { setTandaTerimaPeserta(peserta); setTandaTerimaFiltered(peserta.length > 0); }} />
+              </>
+            )}
           </>
         );
 
@@ -1991,11 +2016,13 @@ function DaftarHadirDocxPreview({ formValues, peserta, namaInda, selectedFilterG
   return <DocxPreviewShell loading={loading} error={error} templateName="1. Daftar Hadir Pelatihan SE2026.docx"><div ref={containerRef} className="overflow-x-auto" /></DocxPreviewShell>;
 }
 
-function TandaTerimaDocxPreview({ formValues, peserta }) {
+function TandaTerimaDocxPreview({ formValues, peserta, tandaTerimaType }) {
+  const templateUrl = tandaTerimaType === "lapangan" ? TANDA_TERIMA_LAPANGAN_TEMPLATE_URL : TANDA_TERIMA_TEMPLATE_URL;
+  const templateName = tandaTerimaType === "lapangan" ? "2. Tanda Terima Perlengkapan SE2026 - Copy.docx" : "2. Tanda Terima Perlengkapan SE2026.docx";
   const { containerRef, loading, error } = useSingleDocxPreview(
-    () => createTandaTerimaBlob(TANDA_TERIMA_TEMPLATE_URL, formValues || {}, peserta || []), [formValues, peserta]
+    () => createTandaTerimaBlob(templateUrl, formValues || {}, peserta || []), [formValues, peserta, tandaTerimaType]
   );
-  return <DocxPreviewShell loading={loading} error={error} templateName="2. Tanda Terima Perlengkapan SE2026.docx"><div ref={containerRef} className="overflow-x-auto" /></DocxPreviewShell>;
+  return <DocxPreviewShell loading={loading} error={error} templateName={templateName}><div ref={containerRef} className="overflow-x-auto" /></DocxPreviewShell>;
 }
 
 function SuratPernyataanKendaraanDocxPreview({ formValues, peserta }) {
@@ -2079,7 +2106,7 @@ function DocPreview({ docType, data }) {
   const renderDoc = () => {
     switch (docType.id) {
       case "daftar-hadir":            return <DaftarHadirDocxPreview formValues={data.formValues || {}} peserta={data.peserta || []} namaInda={data.namaInda || ""} selectedFilterGroup={data.selectedFilterGroup || ""} />;
-      case "tanda-terima":            return <TandaTerimaDocxPreview formValues={data.formValues || {}} peserta={data.peserta || []} />;
+      case "tanda-terima":            return <TandaTerimaDocxPreview formValues={data.formValues || {}} peserta={data.peserta || []} tandaTerimaType={data.tandaTerimaType || "pelatihan"} />;
       case "surat-pernyataan-kendaraan": return <SuratPernyataanKendaraanDocxPreview formValues={data.formValues || {}} peserta={data.peserta || []} />;
       case "pengeluaran-riil":        return <PengeluaranRiilDocxPreview formValues={data.formValues || {}} peserta={data.peserta || []} />;
       case "spj":                     return <SpjDocxPreview formValues={data.formValues || {}} peserta={data.peserta || []} />;
