@@ -42,13 +42,13 @@ function normalizeRowHeaders(row) {
     nama:         normalized["nama"] ?? normalized["nama lengkap"] ?? normalized["nama_lengkap"] ?? normalized["nama-lengkap"] ?? "",
     nik:          normalized["nik"] ?? normalized["nip"] ?? "",
     asal:         normalized["asal"] ?? "",
-    wilTugas:     normalized["wil. tugas"] ?? normalized["wil tugas"] ?? normalized["wil.tugas"] ?? normalized["wilayah tugas"] ?? "",
-    jabatan:      normalized["jabatan"] ?? normalized["posisi"] ?? "",
+    wilTugas:     (normalized["wil. tugas"] ?? normalized["wil tugas"] ?? normalized["wil.tugas"] ?? normalized["wilayah tugas"] ?? "").toUpperCase(),
+    jabatan:      (normalized["jabatan"] ?? normalized["posisi"] ?? "").toUpperCase(),
     pangkatGol:   normalized["pangkat/gol"] ?? normalized["pangkat gol"] ?? normalized["pangkatgol"] ?? "",
     kelas:        String(normalized["kelas"] ?? "").trim(),
-    hotel:        normalized["tc"] ?? normalized["hotel"] ?? "",
+    hotel:        (normalized["tc"] ?? normalized["hotel"] ?? "").toUpperCase(),
     gelombang:    String(normalized["gelombang"] ?? "").trim(),
-    tc:           normalized["tc"] ?? "",
+    tc:           (normalized["tc"] ?? "").toUpperCase(),
     sobatId:      normalized["sobat id"] ?? normalized["sobatid"] ?? "",
     email:        normalized["email"] ?? "",
     jenisKelamin: normalized["jenis kelamin"] ?? normalized["jeniskelamin"] ?? "",
@@ -229,7 +229,6 @@ const SURAT_TUGAS_TEMPLATE_URL                = "/templates/6. Surat Tugas.docx"
 // ─── TEMPLATE DATA BUILDERS ───────────────────────────────────────────────────
 
 // DAFTAR HADIR
-// PENTING: kelas diisi "-" untuk panitia-inda
 const DAFTAR_HADIR_KEPALA_BPS = {
   nama:      "Widiastuti",
   jabatan:   "Penanggung Jawab",
@@ -258,7 +257,6 @@ function buildDaftarHadirTemplateData(formValues, peserta, namaInda, selectedFil
     wilTugas:  "BPS Kota Jakarta Timur",
   };
 
-  // Khusus untuk gelombang 4: atur kepala BPS berdasarkan tempat
   if (gelombangValue === "4") {
     if (hotelValue.includes("bwp")) {
       kepalaBpsEntry = {
@@ -295,7 +293,6 @@ function buildDaftarHadirTemplateData(formValues, peserta, namaInda, selectedFil
     tempat:           formValues.tempat || formValues.hotel || "",
     tempat_kegiatan:  formValues.tempat || formValues.hotel || "",
     gelombang:        formValues.gelombang || "",
-    // PENTING: "-" untuk panitia-inda
     kelas:            isPanitiaInda ? "-" : (formValues.kelas || ""),
     nama_inda:        isPanitiaInda ? "Ir. Tristiati, MA" : (namaInda || ""),
     keterangan_ttd:   isPanitiaInda ? "Kepala Sub Bagian Umum" : (isPmlPpl ? "Instruktur Daerah" : ""),
@@ -366,8 +363,38 @@ async function createTandaTerimaBlob(templateUrl, formValues, peserta) {
   return doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
 }
 
-async function generateTandaTerima(templateUrl, formValues, peserta) {
-  const blob = await createTandaTerimaBlob(templateUrl, formValues, peserta);
+async function generateTandaTerimaSmart(formValues, peserta, tandaTerimaType) {
+  const hotelValue = cleanText(formValues?.tempat || formValues?.hotel || "").toLowerCase();
+
+  if (tandaTerimaType === "mitra-umum") {
+    const wilTugas = peserta?.[0]?.wilTugas ? cleanText(peserta[0].wilTugas) : "MITRA UMUM";
+    const blob = await createTandaTerimaBlob(TANDA_TERIMA_LAPANGAN_TEMPLATE_URL, formValues || {}, peserta || []);
+    saveAs(blob, `Tanda Terima Perlengkapan Lapangan - ${wilTugas}.docx`);
+    return;
+  }
+
+  if (tandaTerimaType === "lapangan") {
+    if (hotelValue === "stis") {
+      const blob = await createTandaTerimaBlob(TANDA_TERIMA_LAPANGAN_TEMPLATE_URL, formValues || {}, peserta || []);
+      saveAs(blob, `Tanda Terima Perlengkapan STIS Gelombang ${formValues?.gelombang || "X"}.docx`);
+      return;
+    }
+
+    const groups = (peserta || []).reduce((acc, p) => {
+      const key = cleanText(p.wilTugas) || "LAINNYA";
+      (acc[key] = acc[key] || []).push(p);
+      return acc;
+    }, {});
+
+    for (const [kec, list] of Object.entries(groups)) {
+      const blob = await createTandaTerimaBlob(TANDA_TERIMA_LAPANGAN_TEMPLATE_URL, formValues || {}, list);
+      const safeKec = kec || "LAINNYA";
+      saveAs(blob, `Tanda Terima Perlengkapan ${safeKec} Gelombang ${formValues?.gelombang || "X"} Kelas ${formValues?.kelas || "X"}.docx`);
+    }
+    return;
+  }
+
+  const blob = await createTandaTerimaBlob(TANDA_TERIMA_TEMPLATE_URL, formValues || {}, peserta || []);
   saveAs(blob, `Tanda Terima Perlengkapan Gelombang ${formValues?.gelombang || "X"} Kelas ${formValues?.kelas || "X"}.docx`);
 }
 
@@ -377,12 +404,10 @@ function buildSuratPernyataanKendaraanTemplateData(formValues, peserta) {
   const sorted     = sortPesertaByJabatanOrder(peserta || []);
   const hotelValue = cleanText(formValues.tempat || formValues.hotel || "").toLowerCase();
 
-  // default values (can be overridden by hotel-specific hard-coded values)
   let nomor_surtug_val = formValues.nomor_surat || formValues.nomor || "";
   let tanggal_kegiatan_val = formatTanggalLengkapIndonesia(formValues.tanggal) || "";
   let tanggal_surtug_val = tanggalFmt;
 
-  // Hard-coded mappings for Super Kendis based on venue/hotel
   if (hotelValue.includes("bwp")) {
     nomor_surtug_val = "B-999.1/3172/SS.220/2026";
     tanggal_kegiatan_val = "1 Juni - 3 Juni 2026";
@@ -391,7 +416,7 @@ function buildSuratPernyataanKendaraanTemplateData(formValues, peserta) {
     nomor_surtug_val = "B-999.3/3172/SS.220/2026";
     tanggal_kegiatan_val = "1 Juni - 3 Juni 2026";
     tanggal_surtug_val = "29 Mei 2026";
-  } else if (hotelValue.includes("harper") || hotelValue.includes("harper")) {
+  } else if (hotelValue.includes("harper")) {
     nomor_surtug_val = "B-999.2/3172/SS.220/2026";
     tanggal_kegiatan_val = "1 Juni - 3 Juni 2026";
     tanggal_surtug_val = "29 Mei 2026";
@@ -882,7 +907,7 @@ export default function PortalAdministrasiSE2026() {
                       <Printer size={16} /> Cetak
                     </button>
                     {selectedDoc?.id === "daftar-hadir" && <GenerateDocxButton onGenerate={() => generateDaftarHadir(DAFTAR_HADIR_TEMPLATE_URL, previewData.formValues, previewData.peserta, previewData.namaInda, previewData.selectedFilterGroup)} />}
-                    {selectedDoc?.id === "tanda-terima" && <GenerateDocxButton onGenerate={() => generateTandaTerima(previewData.tandaTerimaType === "lapangan" ? TANDA_TERIMA_LAPANGAN_TEMPLATE_URL : TANDA_TERIMA_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
+                    {selectedDoc?.id === "tanda-terima" && <GenerateDocxButton onGenerate={() => generateTandaTerimaSmart(previewData.formValues, previewData.peserta, previewData.tandaTerimaType)} />}
                     {selectedDoc?.id === "surat-pernyataan-kendaraan" && <GenerateDocxButton onGenerate={() => generateSuratPernyataanKendaraan(SURAT_PERNYATAAN_KENDARAAN_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
                     {selectedDoc?.id === "pengeluaran-riil" && <GenerateDocxButton onGenerate={() => generatePengeluaranRiil(PENGELUARAN_RIIL_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
                     {selectedDoc?.id === "spj" && <GenerateDocxButton onGenerate={() => generateSpj(SPJ_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
@@ -1047,9 +1072,6 @@ function PesertaTablePreview({ peserta }) {
 }
 
 // ─── FILTER PESERTA PANEL ─────────────────────────────────────────────────────
-// selectedGroup: "pml-ppl" → tampilkan Kelas
-//                "panitia-inda" → sembunyikan Kelas, kelas akan "-" di dokumen
-//                "" → tampilkan Kelas (mode lain)
 
 function FilterPesertaPanel({ xlsxLoaded, formData, setFormData, petugasData, mode = "grouped", selectedGroup = "", onFilterResult, prependRow = null }) {
   const inputCls = "w-full rounded-2xl border border-orange-100 bg-white/80 px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100 transition";
@@ -1059,7 +1081,6 @@ function FilterPesertaPanel({ xlsxLoaded, formData, setFormData, petugasData, mo
   const [filteredPeserta, setFilteredPeserta] = useState([]);
   const [namaInda,        setNamaInda]        = useState("");
 
-  // Panitia & Inda tidak butuh kelas
   const showKelas = selectedGroup !== "panitia-inda";
 
   const selectedHotel     = cleanText(formData.hotel);
@@ -1118,7 +1139,6 @@ function FilterPesertaPanel({ xlsxLoaded, formData, setFormData, petugasData, mo
         <Filter size={14} /> Parameter Filter Peserta
       </p>
 
-      {/* Tempat */}
       <div>
         <label className={labelCls}>Tempat</label>
         <select className={inputCls} value={formData.hotel || ""}
@@ -1130,7 +1150,6 @@ function FilterPesertaPanel({ xlsxLoaded, formData, setFormData, petugasData, mo
         <p className="mt-1 text-xs font-semibold text-slate-400">Daftar tempat diambil dari kolom TC pada data XLSX.</p>
       </div>
 
-      {/* Gelombang + Kelas */}
       <div className={`grid gap-4 ${showKelas ? "sm:grid-cols-2" : ""}`}>
         <div>
           <label className={labelCls}>Gelombang</label>
@@ -1154,7 +1173,6 @@ function FilterPesertaPanel({ xlsxLoaded, formData, setFormData, petugasData, mo
         )}
       </div>
 
-      {/* Info panitia-inda */}
       {!showKelas && (
         <div className="flex items-center gap-2 rounded-2xl border border-orange-100 bg-white/70 px-4 py-3 text-xs font-semibold text-slate-500">
           <AlertCircle size={14} className="shrink-0 text-orange-400" />
@@ -1162,7 +1180,6 @@ function FilterPesertaPanel({ xlsxLoaded, formData, setFormData, petugasData, mo
         </div>
       )}
 
-      {/* Tombol filter */}
       <button type="button" onClick={runFilter}
         className={`w-full inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-black shadow-lg transition hover:-translate-y-0.5 ${filtered ? "bg-orange-600 text-white shadow-orange-500/25" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>
         <Users size={16} /> Tampilkan Peserta
@@ -1290,12 +1307,13 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
   const [daftarHadirPeserta,     setDaftarHadirPeserta]     = useState([]);
   const [daftarHadirNamaInda,    setDaftarHadirNamaInda]    = useState("");
   const [daftarHadirFiltered,    setDaftarHadirFiltered]    = useState(false);
-  // "" = belum pilih, "pml-ppl" atau "panitia-inda"
   const [daftarHadirFilterGroup, setDaftarHadirFilterGroup] = useState("");
 
   const [tandaTerimaPeserta,      setTandaTerimaPeserta]      = useState([]);
   const [tandaTerimaFiltered,     setTandaTerimaFiltered]     = useState(false);
-  const [tandaTerimaType,         setTandaTerimaType]         = useState(""); // "pelatihan" atau "lapangan"
+  const [tandaTerimaType,         setTandaTerimaType]         = useState("");
+  const [tandaTerimaWilTugas,     setTandaTerimaWilTugas]     = useState("");
+  const [tandaTerimaLokasi,       setTandaTerimaLokasi]       = useState("BPS Kota Jakarta Timur");
   const [suratPernyataanPeserta,  setSuratPernyataanPeserta]  = useState([]);
   const [suratPernyataanFiltered, setSuratPernyataanFiltered] = useState(false);
   const [suratPernyataanFilterGroup, setSuratPernyataanFilterGroup] = useState("");
@@ -1303,7 +1321,6 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
   const [suratTugasFiltered,      setSuratTugasFiltered]      = useState(false);
   const [spjPeserta,              setSpjPeserta]              = useState([]);
   const [spjFiltered,             setSpjFiltered]             = useState(false);
-  // "" = belum pilih, "pml-ppl" atau "panitia-inda"
   const [spjFilterGroup,          setSpjFilterGroup]          = useState("");
   const [spdPeserta,              setSpdPeserta]              = useState([]);
   const [spdFiltered,             setSpdFiltered]             = useState(false);
@@ -1338,7 +1355,6 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
           ...formData,
           tempat:          formData.tempat || formData.hotel || "",
           kelompokPeserta: DAFTAR_HADIR_GROUPS[daftarHadirFilterGroup]?.label || "",
-          // kelas "-" untuk panitia-inda
           kelas:           isPanitiaInda ? "-" : (formData.kelas || ""),
         },
         peserta:             daftarHadirPeserta,
@@ -1351,7 +1367,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
     if (docType.id === "tanda-terima") {
       if (!tandaTerimaType) { alert("Pilih jenis tanda terima terlebih dahulu."); return; }
       if (!tandaTerimaFiltered || tandaTerimaPeserta.length === 0) { alert("Tampilkan peserta terlebih dahulu."); return; }
-      onPreview({ formValues: { ...formData, tempat: formData.tempat || formData.hotel || "" }, peserta: tandaTerimaPeserta, tandaTerimaType: tandaTerimaType });
+      onPreview({ formValues: { ...formData, tempat: tandaTerimaType === "mitra-umum" ? tandaTerimaLokasi : (formData.tempat || formData.hotel || "") }, peserta: tandaTerimaPeserta, tandaTerimaType: tandaTerimaType });
       return;
     }
 
@@ -1483,13 +1499,11 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
               </div>
             )}
 
-            {/* Tanggal */}
             <div>
               <label className={labelCls}>Tanggal Kegiatan</label>
               <input type="date" className={inputCls} value={formData.tanggal || ""} onChange={(e) => update("tanggal", e.target.value)} />
             </div>
 
-            {/* Jam */}
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelCls}>Jam Mulai</label>
@@ -1501,7 +1515,6 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
               </div>
             </div>
 
-            {/* ── Pilih kelompok peserta ── */}
             <div>
               <p className={labelCls}>Kelompok Peserta</p>
               <div className="flex gap-3">
@@ -1512,7 +1525,6 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
                       setDaftarHadirFiltered(false);
                       setDaftarHadirPeserta([]);
                       setDaftarHadirNamaInda("");
-                      // Panitia & Inda tidak butuh kelas → reset
                       if (key === "panitia-inda") {
                         setFormData((prev) => ({ ...prev, kelas: "" }));
                       }
@@ -1528,7 +1540,6 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
               )}
             </div>
 
-            {/* ── Filter panel — muncul setelah kelompok dipilih ── */}
             <AnimatePresence mode="wait">
               {daftarHadirFilterGroup && (
                 <motion.div key={daftarHadirFilterGroup} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
@@ -1558,7 +1569,6 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
               )}
             </AnimatePresence>
 
-            {/* ── Info TTD setelah filter berhasil ── */}
             {daftarHadirFiltered && daftarHadirFilterGroup && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                 className="flex items-center justify-between rounded-2xl border border-orange-100 bg-white/80 px-4 py-3">
@@ -1583,28 +1593,83 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
         );
 
       // ── TANDA TERIMA ────────────────────────────────────────────────────────
-      case "tanda-terima":
+      case "tanda-terima": {
+        // ✅ FIX: wilTugasOptions hanya dari petugas non-STIS
+        const wilTugasOptions = React.useMemo(
+          () =>
+            uniqueSorted(
+              (petugasData || [])
+                .filter((p) => cleanText(p.hotel).toUpperCase() !== "STIS")
+                .map((p) => cleanText(p.wilTugas))
+                .filter(Boolean)
+            ),
+          [petugasData]
+        );
+
         return (
           <>
             <div>
               <p className={labelCls}>Jenis Tanda Terima</p>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <button type="button"
-                  onClick={() => { setTandaTerimaType("pelatihan"); setTandaTerimaFiltered(false); setTandaTerimaPeserta([]); }}
+                  onClick={() => { setTandaTerimaType("pelatihan"); setTandaTerimaFiltered(false); setTandaTerimaPeserta([]); setTandaTerimaWilTugas(""); }}
                   className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-black transition ${tandaTerimaType === "pelatihan" ? "bg-orange-600 text-white shadow-lg shadow-orange-500/20" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>
                   <Briefcase size={15} /> Tanda Terima Perlengkapan Pelatihan
                 </button>
                 <button type="button"
-                  onClick={() => { setTandaTerimaType("lapangan"); setTandaTerimaFiltered(false); setTandaTerimaPeserta([]); }}
+                  onClick={() => { setTandaTerimaType("lapangan"); setTandaTerimaFiltered(false); setTandaTerimaPeserta([]); setTandaTerimaWilTugas(""); }}
                   className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-black transition ${tandaTerimaType === "lapangan" ? "bg-orange-600 text-white shadow-lg shadow-orange-500/20" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>
                   <Briefcase size={15} /> Tanda Terima Perlengkapan Lapangan
+                </button>
+                <button type="button"
+                  onClick={() => { setTandaTerimaType("mitra-umum"); setTandaTerimaFiltered(false); setTandaTerimaPeserta([]); setTandaTerimaWilTugas(""); setTandaTerimaLokasi("BPS Kota Jakarta Timur"); }}
+                  className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-black transition ${tandaTerimaType === "mitra-umum" ? "bg-orange-600 text-white shadow-lg shadow-orange-500/20" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>
+                  <Briefcase size={15} /> Tanda Terima Perlengkapan Lapangan - Mitra Umum
                 </button>
               </div>
               {!tandaTerimaType && (
                 <p className="mt-2 text-xs font-semibold text-slate-400">Pilih jenis tanda terima terlebih dahulu.</p>
               )}
             </div>
-            {tandaTerimaType && (
+            {tandaTerimaType && (tandaTerimaType === "mitra-umum" ? (
+              <>
+                <div>
+                  <label className={labelCls}>Tanggal Kegiatan</label>
+                  <input type="date" className={inputCls} value={formData.tanggal || ""} onChange={(e) => update("tanggal", e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelCls}>Pilih Wilayah Tugas</label>
+                  {/* ✅ FIX: dropdown wilTugas sudah exclude TC = STIS, filter data juga exclude STIS */}
+                  <select className={inputCls} value={tandaTerimaWilTugas} onChange={(e) => {
+                    const newWilTugas = e.target.value;
+                    setTandaTerimaWilTugas(newWilTugas);
+                    const filtered = newWilTugas
+                      ? (petugasData || []).filter(
+                          (p) =>
+                            cleanText(p.wilTugas).toUpperCase() === newWilTugas.toUpperCase() &&
+                            cleanText(p.hotel).toUpperCase() !== "STIS"
+                        )
+                      : [];
+                    setTandaTerimaPeserta(filtered);
+                    setTandaTerimaFiltered(filtered.length > 0);
+                  }}>
+                    <option value="">-- Pilih Wilayah Tugas --</option>
+                    {wilTugasOptions.map((wil) => (
+                      <option key={wil} value={wil}>{wil}</option>
+                    ))}
+                  </select>
+                  {tandaTerimaWilTugas && (
+                    <p className="mt-1 text-xs font-semibold text-slate-400">
+                      {tandaTerimaPeserta.length} petugas non-STIS ditemukan untuk wilayah ini.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className={labelCls}>Lokasi</label>
+                  <input type="text" className={inputCls} value={tandaTerimaLokasi} onChange={(e) => setTandaTerimaLokasi(e.target.value)} />
+                </div>
+              </>
+            ) : (
               <>
                 <div>
                   <label className={labelCls}>Tanggal Kegiatan</label>
@@ -1612,9 +1677,10 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
                 </div>
                 <FilterPesertaPanel xlsxLoaded={xlsxLoaded} formData={formData} setFormData={setFormData} petugasData={petugasData} mode="all" selectedGroup="" onFilterResult={(peserta) => { setTandaTerimaPeserta(peserta); setTandaTerimaFiltered(peserta.length > 0); }} />
               </>
-            )}
+            ))}
           </>
         );
+      }
 
       // ── SURAT PERNYATAAN KENDARAAN / SUPER KENDIS ──────────────────────────
       case "surat-pernyataan-kendaraan":
@@ -1781,7 +1847,6 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
               </div>
             </div>
 
-            {/* ── Pilih kelompok peserta SPJ ── */}
             <div>
               <p className={labelCls}>Kelompok Peserta SPJ</p>
               <div className="flex gap-3">
@@ -1806,7 +1871,6 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
               )}
             </div>
 
-            {/* ── Filter panel SPJ — sama seperti Daftar Hadir ── */}
             <AnimatePresence mode="wait">
               {spjFilterGroup && (
                 <motion.div key={spjFilterGroup} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
@@ -2017,8 +2081,8 @@ function DaftarHadirDocxPreview({ formValues, peserta, namaInda, selectedFilterG
 }
 
 function TandaTerimaDocxPreview({ formValues, peserta, tandaTerimaType }) {
-  const templateUrl = tandaTerimaType === "lapangan" ? TANDA_TERIMA_LAPANGAN_TEMPLATE_URL : TANDA_TERIMA_TEMPLATE_URL;
-  const templateName = tandaTerimaType === "lapangan" ? "2. Tanda Terima Perlengkapan SE2026 - Copy.docx" : "2. Tanda Terima Perlengkapan SE2026.docx";
+  const templateUrl = (tandaTerimaType === "lapangan" || tandaTerimaType === "mitra-umum") ? TANDA_TERIMA_LAPANGAN_TEMPLATE_URL : TANDA_TERIMA_TEMPLATE_URL;
+  const templateName = (tandaTerimaType === "lapangan" || tandaTerimaType === "mitra-umum") ? "2. Tanda Terima Perlengkapan SE2026 - Copy.docx" : "2. Tanda Terima Perlengkapan SE2026.docx";
   const { containerRef, loading, error } = useSingleDocxPreview(
     () => createTandaTerimaBlob(templateUrl, formValues || {}, peserta || []), [formValues, peserta, tandaTerimaType]
   );
