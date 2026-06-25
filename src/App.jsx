@@ -7,12 +7,13 @@ import React, { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, Users, ClipboardList, Car, Receipt, Briefcase,
-  Map, ChevronRight, X, Printer, ArrowLeft, Check, Plus,
+  Map as MapIcon, ChevronRight, X, Printer, ArrowLeft, Check, Plus,
   Trash2, Menu, LayoutDashboard, Upload, Download, Filter,
   AlertCircle, CheckCircle, MapPin,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
+import JSZip from "jszip";
 import Docxtemplater from "docxtemplater";
 import { saveAs } from "file-saver";
 import { renderAsync } from "docx-preview";
@@ -25,8 +26,9 @@ const DOC_TYPES = [
   { id: "surat-pernyataan-kendaraan", icon: <Car />, label: "Super Kendis", desc: "Surat pernyataan tidak menggunakan kendaraan dinas", color: "orange" },
   { id: "pengeluaran-riil", icon: <Receipt />,    label: "DPR", desc: "Rincian pengeluaran operasional petugas", color: "amber" },
   { id: "spj",           icon: <FileText />,      label: "SPJ", desc: "SPJ", color: "orange" },
-  { id: "spd",           icon: <Map />,           label: "SPD", desc: "Surat Perjalanan Dinas", color: "amber" },
+  { id: "spd",           icon: <MapIcon />,           label: "SPD", desc: "Surat Perjalanan Dinas", color: "amber" },
   { id: "surat-tugas",   icon: <Users />,         label: "Surtug", desc: "Surat tugas pelaksanaan kegiatan", color: "orange" },
+  { id: "lampiran",      icon: <FileText />,      label: "Lampiran", desc: "Lampiran wilayah kerja PML/PPL", color: "amber" },
 ];
 
 // ─── XLSX PARSER ─────────────────────────────────────────────────────────────
@@ -62,14 +64,167 @@ function parseXlsxData(arrayBuffer) {
   return raw.map(normalizeRowHeaders).filter(r => r.nama !== "" || r.nik !== "" || r.sobatId !== "");
 }
 
+function normalizeLampiranRow(row) {
+  const normalized = {};
+
+  Object.entries(row).forEach(([k, v]) => {
+    const key = String(k ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+
+    normalized[key] = String(v ?? "").trim();
+  });
+
+  const get = (...keys) => {
+    for (const key of keys) {
+      const value = normalized[key];
+      if (value != null && String(value).trim() !== "") return String(value).trim();
+    }
+    return "";
+  };
+
+  return {
+    no: get("no"),
+
+    // Struktur sheet Lampiran dari Google Sheet:
+    // PENGAWAS = PML, PENCACAH = PPL.
+    nama_pml: get("pengawas", "nama pml", "nama_pml", "pml"),
+    nama_ppl: get("pencacah", "nama ppl", "nama_ppl", "ppl", "nama petugas lapangan sensus"),
+
+    email_pengawas: get("email pengawas", "mail pengawas", "email pml"),
+    email_pencacah: get("email pencacah", "mail pencacah", "email ppl"),
+
+    kdprov: get("kdprov"),
+    kdkab: get("kdkab"),
+    kdkec: get("kdkec"),
+    kddesa: get("kddesa"),
+    kdsls: get("kdsls"),
+    kdsubsls: get("kdsubsls"),
+    kdsubslspanjang: get("kdsubsls_25_2", "kdsubsls_25", "kdsubsls panjang"),
+
+    nmprov: get("nmprov"),
+    nmkab: get("nmkab"),
+    kecamatan: get("nmkec", "kecamatan", "kecamatan/distrik", "kecamatan / distrik").toUpperCase(),
+    kelurahan: get("nmdesa", "kelurahan", "desa/kampung/nagari", "desa / kampung / nagari").toUpperCase(),
+    sls: get("nmsls", "sls"),
+    subsls: get("nmsubsls", "sub-sls", "sub sls"),
+
+    // Kolom ini opsional. Kalau tidak ada, jumlah dihitung dari banyaknya baris.
+    jumlah: get("jumlah", "jumlah sls/sub-sls", "jumlah sls/sub sls", "jumlah sls / sub-sls", "jumlah sls"),
+
+    jabatan: get("jabatan").toUpperCase(),
+    kelas: get("kelas"),
+    gelombang: get("gelombang"),
+    hotel: get("tc", "hotel", "tempat").toUpperCase(),
+    tc: get("tc", "hotel", "tempat").toUpperCase(),
+  };
+}
+
+// 🔥 FIX: Google Sheet sumber Lampiran biasanya pakai "merged cell" secara visual —
+// nama Pengawas/Pencacah, kecamatan, kelurahan, dst hanya diisi SEKALI di baris pertama
+// tiap blok, lalu baris-baris SLS berikutnya di bawahnya dikosongkan.
+// XLSX.utils.sheet_to_json TIDAK menurunkan nilai merged cell, jadi baris-baris itu
+// terbaca kosong dan akhirnya DIBUANG oleh generateLampiran() (karena identity-nya kosong).
+// Ini sebabnya 1 PML yang sebenarnya membawahi 7-8 SLS/PPL hanya muncul 2-3 baris saja.
+//
+// Solusinya: forward-fill — isi sel kosong dengan nilai terakhir yang valid di kolom
+// yang sama, KHUSUS untuk kolom yang memang lazim merged (nama petugas, lokasi, dll).
+// Kolom kode SLS/Sub-SLS sengaja TIDAK di-forward-fill karena itu harus unik per baris.
+const LAMPIRAN_FORWARD_FILL_KEYS = [
+  "nama_pml", "nama_ppl",
+  "email_pengawas", "email_pencacah",
+  "kdprov", "kdkab", "kdkec", "kddesa",
+  "nmprov", "nmkab", "kecamatan", "kelurahan",
+  "jabatan", "kelas", "gelombang", "hotel", "tc",
+];
+
+function forwardFillLampiranRows(rows) {
+  const lastValue = {};
+  return rows.map((row) => {
+    const filled = { ...row };
+    for (const key of LAMPIRAN_FORWARD_FILL_KEYS) {
+      const value = cleanText(filled[key]);
+      if (value) {
+        lastValue[key] = value;
+      } else if (lastValue[key]) {
+        // Sel kosong karena merged cell -> turunkan nilai dari baris di atasnya
+        filled[key] = lastValue[key];
+      }
+    }
+    return filled;
+  });
+}
+
+function parseLampiranXlsxData(arrayBuffer) {
+  const workbook = XLSX.read(arrayBuffer, { type: "array" });
+
+  // Cari tab bernama Lampiran secara toleran:
+  // - tidak sensitif kapital
+  // - mengabaikan spasi di awal/akhir
+  // Ini mencegah kasus tab "Lampiran " terbaca di console tetapi dianggap kosong di frontend.
+  const sheetName = workbook.SheetNames.find(
+    (name) => String(name ?? "").trim().toLowerCase() === "lampiran"
+  );
+
+  console.log("Daftar sheet terbaca:", workbook.SheetNames);
+
+  if (!sheetName) {
+    console.warn("Sheet bernama 'Lampiran' tidak ditemukan. Sheet tersedia:", workbook.SheetNames);
+    return [];
+  }
+
+  const sheet = workbook.Sheets[sheetName];
+  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+
+  console.log("Raw Lampiran:", raw);
+
+  const normalizedRows = raw.map(normalizeLampiranRow);
+
+  // 🔥 FIX: Google Sheet biasanya punya banyak baris kosong tambahan di ekor sheet
+  // (range default jauh lebih panjang dari data aslinya). Kalau forward-fill langsung
+  // dijalankan ke SEMUA baris (termasuk baris kosong di ekor), baris-baris kosong itu
+  // akan "ketarik" nilai PENCACAH/kecamatan/kelurahan terakhir yang valid, sehingga
+  // jumlah baris yang diproses bisa membengkak jadi ribuan baris palsu milik PPL
+  // terakhir. Ini yang menyebabkan error "Array buffer allocation failed" saat
+  // generate Lampiran PPL.
+  //
+  // Solusinya: saring dulu baris yang BENAR-BENAR baris data, berdasarkan kolom yang
+  // TIDAK PERNAH di-forward-fill (kdsls/kdkec/kddesa/sls/subsls) — kolom ini aman
+  // dipakai sebagai penanda baris asli, karena nilainya selalu apa adanya dari sheet,
+  // bukan hasil "tebakan" forward-fill.
+  const candidateRows = normalizedRows.filter((r) =>
+    cleanText(r.kdsls) || cleanText(r.kdkec) || cleanText(r.kddesa) || cleanText(r.sls) || cleanText(r.subsls)
+  );
+
+  if (normalizedRows.length !== candidateRows.length) {
+    console.log(
+      `Lampiran: membuang ${normalizedRows.length - candidateRows.length} baris kosong/bukan-data sebelum forward-fill (dari ${normalizedRows.length} baris mentah).`
+    );
+  }
+
+  // 🔥 FIX: turunkan nilai dari merged cell SEBELUM difilter,
+  // supaya baris dengan nama_pml/nama_ppl kosong tidak ikut terbuang.
+  const filledRows = forwardFillLampiranRows(candidateRows);
+
+  const parsed = filledRows
+    .filter((r) => r.nama_pml || r.nama_ppl || r.kecamatan || r.kelurahan || r.sls || r.subsls);
+
+  console.log("Lampiran parsed rows (setelah forward-fill):", parsed);
+
+  return parsed;
+}
+
 function normalizeGoogleSheetUrl(url) {
   if (!url) return null;
   try {
     const parsed = new URL(url.trim());
     const sheetIdMatch = parsed.pathname.match(/\/d\/([a-zA-Z0-9-_]+)/);
-    const gid = parsed.searchParams.get("gid") || "0";
     if (!sheetIdMatch) return null;
-    return `https://docs.google.com/spreadsheets/d/${sheetIdMatch[1]}/export?format=csv&gid=${gid}`;
+
+    // Penting: gunakan export XLSX, bukan CSV.
+    // CSV hanya mengambil satu tab berdasarkan gid, sedangkan fitur Lampiran perlu membaca seluruh workbook.
+    return `https://docs.google.com/spreadsheets/d/${sheetIdMatch[1]}/export?format=xlsx`;
   } catch { return null; }
 }
 
@@ -84,16 +239,29 @@ function isAdministrasiSheet(headers) {
   return hasName && hasJabatan && keys.includes("tc") && keys.includes("kelas") && keys.includes("gelombang");
 }
 
-async function loadGoogleSheet(csvUrl) {
-  const response = await fetch(csvUrl);
+async function loadGoogleSheet(xlsxUrl) {
+  const response = await fetch(xlsxUrl);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const text = await response.text();
-  const workbook = XLSX.read(text, { type: "string" });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+
+  const arrayBuffer = await response.arrayBuffer();
+  const workbook = XLSX.read(arrayBuffer, { type: "array" });
+
+  // Data administrasi tetap mengikuti struktur lama: sheet index ke-6.
+  // Jika suatu saat struktur berubah, bagian ini yang perlu disesuaikan.
+  const mainSheet = workbook.Sheets[workbook.SheetNames[5]];
+  if (!mainSheet) {
+    throw new Error(`Sheet data utama tidak ditemukan. Sheet tersedia: ${workbook.SheetNames.join(", ")}`);
+  }
+
+  const raw = XLSX.utils.sheet_to_json(mainSheet, { defval: "", raw: false });
   const rawHeaders = raw.length ? Object.keys(raw[0]).map((h) => String(h ?? "").trim()) : [];
   const data = raw.map(normalizeRowHeaders).filter((r) => r.nama !== "" || r.nik !== "" || r.sobatId !== "");
-  return { data, rawHeaders };
+  const lampiran = parseLampiranXlsxData(arrayBuffer);
+
+  console.log("Data petugas parsed rows:", data);
+  console.log("Lampiran state candidate rows:", lampiran);
+
+  return { data, lampiran, rawHeaders };
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -225,6 +393,8 @@ const SPJ_TEMPLATE_URL                        = "/templates/5. SPJ Pelatihan_SE2
 const SPD_TEMPLATE_URL                        = "/templates/6. SPD.docx";
 const SPD_LAMPIRAN_TEMPLATE_URL               = "/templates/6. Lampiran SPD.docx";
 const SURAT_TUGAS_TEMPLATE_URL                = "/templates/6. Surat Tugas.docx";
+const LAMPIRAN_PML_TEMPLATE_URL              = "/templates/LAMPIRAN PML.docx";
+const LAMPIRAN_PPL_TEMPLATE_URL              = "/templates/LAMPIRAN PPL.docx";
 
 // ─── TEMPLATE DATA BUILDERS ───────────────────────────────────────────────────
 
@@ -606,6 +776,10 @@ function buildSpdTemplateData(formValues, peserta = []) {
   };
 }
 
+function makeSlsKey(row) {
+  return `${cleanText(row.kdkec)}|${cleanText(row.kddesa)}|${cleanText(row.kdsls)}|${cleanText(row.kdsubsls)}`;
+}
+
 async function createSpdBlob(templateUrl, formValues, peserta) {
   const response = await fetch(templateUrl);
   if (!response.ok) throw new Error(`Gagal memuat template: ${response.status} ${response.statusText}`);
@@ -688,6 +862,264 @@ async function generateSuratTugas(templateUrl, formValues, peserta) {
   saveAs(blob, `Surat Tugas ${safeNomor} ${safeTempat} Gelombang ${safeGelombang} ${safeTanggal}.docx`);
 }
 
+// LAMPIRAN
+function formatKodeNama(kode, nama) {
+  const kodeText = cleanText(kode);
+  const namaText = cleanText(nama).toUpperCase();
+  if (kodeText && namaText) return `${kodeText} ${namaText}`;
+  return namaText || kodeText;
+}
+
+function groupLampiranRows(lampiranRows = [], jenis = "PML") {
+  const isPml = upperText(jenis) === "PML";
+
+  const map = new Map();
+
+  for (const r of lampiranRows || []) {
+    const namaPml = cleanText(r.nama_pml);
+    const namaPpl = cleanText(r.nama_ppl);
+
+    const kec = cleanText(r.kdkec);
+    const desa = cleanText(r.kddesa);
+
+    // 🔥 FIX: untuk Lampiran PML, satu PML bisa membawahi banyak PPL yang
+    // kebetulan bertugas di kecamatan/kelurahan yang SAMA. Kalau key grouping
+    // hanya namaPml|kec|desa, semua PPL berbeda dengan kec/desa sama akan
+    // ditumpuk jadi SATU baris saja (nama PPL pertama menang, PPL lain hilang).
+    // Maka nama_ppl WAJIB ikut jadi bagian key supaya setiap PPL tetap dapat
+    // baris sendiri-sendiri.
+    const keyBase = isPml
+      ? `${namaPml}|${namaPpl}|${kec}|${desa}`
+      : `${kec}|${desa}`;
+
+    if (!map.has(keyBase)) {
+      map.set(keyBase, {
+        nama_pml: namaPml,
+        nama_ppl: namaPpl,
+        kdkec: kec,
+        kddesa: desa,
+        kecamatan: cleanText(r.kecamatan).toUpperCase(),
+        kelurahan: cleanText(r.kelurahan).toUpperCase(),
+
+        // 🔥 FIX: pakai SET untuk UNIQUE SLS
+        slsSet: new Set(),
+      });
+    }
+
+    const item = map.get(keyBase);
+
+    const slsKey = makeSlsKey(r);
+    item.slsSet.add(slsKey);
+  }
+
+  return [...map.values()]
+    .map(v => ({
+      ...v,
+      jumlah: v.slsSet.size, // 🔥 FIX: UNIQUE SLS/SUBSLS
+    }))
+    .sort((a, b) => {
+      // PML: urutkan per nama PPL (alfabetis) supaya tidak acak sesuai urutan baris sheet.
+      // PPL: urutkan per kecamatan lalu kelurahan.
+      if (isPml) {
+        return cleanText(a.nama_ppl).localeCompare(cleanText(b.nama_ppl), "id-ID", { sensitivity: "base" });
+      }
+      const kecDiff = cleanText(a.kecamatan).localeCompare(cleanText(b.kecamatan), "id-ID", { sensitivity: "base" });
+      if (kecDiff !== 0) return kecDiff;
+      return cleanText(a.kelurahan).localeCompare(cleanText(b.kelurahan), "id-ID", { sensitivity: "base" });
+    });
+}
+
+function buildLampiranTemplateData(formValues, lampiranRows = [], jenis = "PML") {
+  // Fungsi ini menerima rows yang SUDAH dipisah per orang oleh generateLampiran().
+  // Jadi output DOCX akan berisi satu petugas saja:
+  // - PML: satu file per PENGAWAS
+  // - PPL: satu file per PENCACAH
+  const isPml = upperText(jenis) === "PML";
+  const namaPetugas = isPml
+    ? cleanText(lampiranRows?.[0]?.nama_pml)
+    : cleanText(lampiranRows?.[0]?.nama_ppl);
+
+  const grouped = groupLampiranRows(lampiranRows || [], jenis);
+
+  return {
+    jenis_lampiran: jenis,
+    nama_petugas: namaPetugas,
+    nama_pml: isPml ? namaPetugas : cleanText(lampiranRows?.[0]?.nama_pml),
+    nama_ppl: !isPml ? namaPetugas : cleanText(lampiranRows?.[0]?.nama_ppl),
+    tempat: formValues.tempat || formValues.hotel || "",
+    hotel: formValues.hotel || formValues.tempat || "",
+    gelombang: formValues.gelombang || "",
+    kelas: formValues.kelas || "",
+    jumlah_baris: grouped.length,
+    peserta: grouped.map((r, idx) => ({
+      no: idx + 1,
+
+      // Kompatibel dengan template lama:
+      // - {nama_petugas} untuk nama utama
+      // - {nama_pml} untuk PENGAWAS
+      // - {nama_ppl} untuk PENCACAH
+      nama_petugas: namaPetugas,
+      nama_pml: isPml ? namaPetugas : r.nama_pml || "",
+      nama_ppl: !isPml ? namaPetugas : r.nama_ppl || "",
+
+      kecamatan: formatKodeNama(r.kdkec, r.kecamatan),
+      kelurahan: formatKodeNama(r.kddesa, r.kelurahan),
+      sls: r.sls || "",
+      subsls: r.subsls || "",
+      jumlah: r.jumlah || 0,
+    })),
+  };
+}
+
+async function createLampiranBlob(templateUrl, formValues, lampiranRows, jenis) {
+  const response = await fetch(templateUrl);
+  if (!response.ok) throw new Error(`Gagal memuat template lampiran: ${response.status} ${response.statusText}`);
+
+  const arrayBuffer = await response.arrayBuffer();
+  return createLampiranBlobFromTemplateBuffer(arrayBuffer, formValues, lampiranRows, jenis);
+}
+
+// 🔥 FIX: dipisah dari createLampiranBlob() supaya template HANYA di-fetch SEKALI
+// (lewat generateLampiran()), bukan di-fetch ulang dari network untuk SETIAP petugas.
+// Untuk ratusan/ribuan petugas, fetch berulang ini sangat lambat dan boros memori.
+// PizZip dibuat baru dari arrayBuffer yang sama setiap kali dipanggil — ini sesuai
+// rekomendasi docxtemplater untuk batch generation (instance Docxtemplater TIDAK
+// boleh dipakai ulang untuk render() berkali-kali, tapi arrayBuffer template-nya aman
+// dipakai ulang berkali-kali untuk membuat PizZip baru).
+function createLampiranBlobFromTemplateBuffer(templateArrayBuffer, formValues, lampiranRows, jenis) {
+  const zip = new PizZip(templateArrayBuffer);
+  const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+
+  doc.render(buildLampiranTemplateData(formValues || {}, lampiranRows || [], jenis));
+
+  return doc.getZip().generate({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+}
+
+function sanitizeFileName(value) {
+  return cleanText(value || "Tanpa Nama")
+    .replace(/[\/:*?"<>|]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function downloadMultipleAsZip(files, zipName = "dokumen.zip") {
+  const zip = new JSZip();
+
+  for (const file of files) {
+    // file: { name, blob }
+    zip.file(file.name, file.blob);
+  }
+
+  const content = await zip.generateAsync({ type: "blob" });
+  saveAs(content, zipName);
+}
+
+
+
+// 🔥 FIX: jumlah PPL/PML bisa mencapai ribuan. Kalau semua dokumen ditahan di memori
+// lalu di-zip jadi SATU file raksasa sekaligus, browser bisa kehabisan memori
+// ("Array buffer allocation failed"). Maka proses zip dipecah per-batch — setiap
+// batch jadi satu file .zip terpisah, sehingga beban memori di setiap tahap kecil
+// dan terkendali. Bisa diturunkan lagi (misal 50-100) kalau template lampiran-nya berat.
+const LAMPIRAN_ZIP_BATCH_SIZE = 150;
+
+async function generateLampiran(templateUrl, formValues, lampiranRows, jenis) {
+  const sourceRows = lampiranRows || [];
+  const isPml = upperText(jenis) === "PML";
+
+  // 🔥 FIX: jangan kelompokkan HANYA berdasarkan teks nama. Kalau ada 2 petugas
+  // berbeda dengan nama yang sama persis (nama kembar), pengelompokan by-nama-saja
+  // akan keliru menyatukan data SLS milik 2 orang berbeda jadi 1 dokumen — salah
+  // satu identitas aslinya akan "tertelan" oleh yang lain.
+  //
+  // Solusinya: kunci pengelompokan diutamakan pakai EMAIL (kolom Email Pengawas /
+  // Email Pencacah), karena email jauh lebih unik per-orang dibanding nama. Nama
+  // tetap dipakai untuk ditampilkan di dokumen & sebagai dasar nama file. Kalau email
+  // kosong di data, fallback ke nama saja (risiko nama kembar tetap ada untuk kasus
+  // ini, tapi sudah jauh lebih baik daripada selalu mengandalkan nama).
+  const groups = new Map(); // identity -> { displayName, rows: [] }
+
+  for (const row of sourceRows) {
+    const namaPml = cleanText(row.nama_pml || row.pengawas || row.nama || "");
+    const namaPpl = cleanText(row.nama_ppl || row.pencacah || row.nama || "");
+    const emailPml = cleanText(row.email_pengawas || "");
+    const emailPpl = cleanText(row.email_pencacah || "");
+
+    const displayName = isPml ? namaPml : namaPpl;
+    if (!displayName) continue;
+
+    const emailKey = upperText(isPml ? emailPml : emailPpl);
+    const identity = emailKey || `NAMA::${upperText(displayName)}`;
+
+    if (!groups.has(identity)) groups.set(identity, { displayName, rows: [] });
+    groups.get(identity).rows.push(row);
+  }
+
+  if (groups.size === 0) {
+    throw new Error(`Tidak ada data ${jenis}`);
+  }
+
+  // 🔥 FIX: deteksi nama kembar (identity berbeda tapi displayName sama persis) supaya
+  // nama file tidak saling menimpa. Kalau ketemu, file dibedakan jadi "Nama (1).docx",
+  // "Nama (2).docx", dst sesuai urutan kemunculan di data.
+  const nameOccurrences = new Map();
+  for (const { displayName } of groups.values()) {
+    const key = upperText(displayName);
+    nameOccurrences.set(key, (nameOccurrences.get(key) || 0) + 1);
+  }
+  const nameRunningIndex = new Map();
+  const buildFileBaseName = (displayName) => {
+    const key = upperText(displayName);
+    const total = nameOccurrences.get(key) || 1;
+    if (total <= 1) return sanitizeFileName(displayName);
+    const idx = (nameRunningIndex.get(key) || 0) + 1;
+    nameRunningIndex.set(key, idx);
+    console.warn(`Lampiran ${jenis}: nama kembar terdeteksi -> "${displayName}" (salinan ke-${idx} dari ${total}, dibedakan via email).`);
+    return `${sanitizeFileName(displayName)} (${idx})`;
+  };
+
+  // 🔥 FIX: fetch template SEKALI saja di sini, lalu arrayBuffer-nya dipakai ulang
+  // untuk membuat setiap dokumen. Sebelumnya template di-fetch dari network untuk
+  // SETIAP petugas (bisa 1000+ kali fetch untuk file yang sama) — sangat lambat.
+  const templateResponse = await fetch(templateUrl);
+  if (!templateResponse.ok) {
+    throw new Error(`Gagal memuat template lampiran: ${templateResponse.status} ${templateResponse.statusText}`);
+  }
+  const templateArrayBuffer = await templateResponse.arrayBuffer();
+
+  const entries = [...groups.values()]; // [{ displayName, rows }, ...]
+  const totalBatches = Math.ceil(entries.length / LAMPIRAN_ZIP_BATCH_SIZE);
+
+  console.log(
+    `Lampiran ${jenis}: ${entries.length} petugas ditemukan, dipecah jadi ${totalBatches} file zip ` +
+    `(maks ${LAMPIRAN_ZIP_BATCH_SIZE} dokumen/zip) untuk menghindari kehabisan memori.`
+  );
+
+  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+    const batchEntries = entries.slice(
+      batchIndex * LAMPIRAN_ZIP_BATCH_SIZE,
+      (batchIndex + 1) * LAMPIRAN_ZIP_BATCH_SIZE
+    );
+
+    const zipFiles = [];
+    for (const { displayName, rows } of batchEntries) {
+      const blob = createLampiranBlobFromTemplateBuffer(templateArrayBuffer, formValues || {}, rows, jenis);
+      zipFiles.push({
+        name: `Lampiran ${jenis} - ${buildFileBaseName(displayName)}.docx`,
+        blob,
+      });
+    }
+
+    const batchSuffix = totalBatches > 1 ? ` - Bagian ${batchIndex + 1} dari ${totalBatches}` : "";
+    await downloadMultipleAsZip(
+      zipFiles,
+      `Lampiran ${jenis} - ${formValues?.gelombang || "SE2026"}${batchSuffix}.zip`
+    );
+  }
+}
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
 export default function PortalAdministrasiSE2026() {
@@ -698,6 +1130,7 @@ export default function PortalAdministrasiSE2026() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [petugasData,        setPetugasData]        = useState([]);
+  const [lampiranData,       setLampiranData]       = useState([]);
   const [xlsxLoaded,         setXlsxLoaded]         = useState(false);
   const [xlsxFileName,       setXlsxFileName]       = useState("data-petugas.xlsx");
   const [googleSheetUrl,     setGoogleSheetUrl]     = useState("https://docs.google.com/spreadsheets/d/10jA_NOMNn5pBuy1OPrSdHstscRrUOUlEDElk-jOmXLQ/edit?gid=1095810027#gid=1095810027");
@@ -710,15 +1143,17 @@ export default function PortalAdministrasiSE2026() {
     setGoogleSheetError(null);
     setGoogleSheetLoading(true);
     try {
-      const { data, rawHeaders } = await loadGoogleSheet(normalized);
+      const { data, lampiran, rawHeaders } = await loadGoogleSheet(normalized);
       if (!isAdministrasiSheet(rawHeaders)) {
         setGoogleSheetError(`Kolom tidak sesuai. Kolom yang ditemukan: ${rawHeaders.slice(0, 8).join(", ")}...`);
         return;
       }
-      if (data.length === 0) { setGoogleSheetError("Sheet tidak berisi data."); return; }
+      if (data.length === 0) { setGoogleSheetError("Sheet data utama tidak berisi data."); return; }
+
       setPetugasData(data);
+      setLampiranData(lampiran || []);
       setXlsxLoaded(true);
-      setXlsxFileName(`Google Sheet (${data.length} petugas)`);
+      setXlsxFileName(`(${data.length} petugas, ${lampiran?.length || 0} baris lampiran)`);
     } catch (err) {
       setGoogleSheetError(`Gagal memuat Google Sheet: ${err.message}`);
     } finally {
@@ -731,8 +1166,11 @@ export default function PortalAdministrasiSE2026() {
       try {
         const response = await fetch("/data/data-petugas.xlsx");
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = parseXlsxData(await response.arrayBuffer());
+        const buffer = await response.arrayBuffer();
+        const data = parseXlsxData(buffer);
+        const lampiran = parseLampiranXlsxData(buffer);
         setPetugasData(data);
+        setLampiranData(lampiran);
         setXlsxLoaded(true);
       } catch (err) {
         console.warn("Tidak dapat memuat data-petugas.xlsx:", err.message);
@@ -751,8 +1189,10 @@ export default function PortalAdministrasiSE2026() {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const data = parseXlsxData(e.target.result);
-        setPetugasData(data); setXlsxLoaded(true); setXlsxFileName(file.name);
+        const buffer = e.target.result;
+        const data = parseXlsxData(buffer);
+        const lampiran = parseLampiranXlsxData(buffer);
+        setPetugasData(data); setLampiranData(lampiran); setXlsxLoaded(true); setXlsxFileName(file.name);
       } catch (err) { alert("Gagal membaca file xlsx: " + err.message); }
     };
     reader.readAsArrayBuffer(file);
@@ -890,7 +1330,7 @@ export default function PortalAdministrasiSE2026() {
                     <h2 className="text-3xl font-black tracking-tight text-slate-950">{selectedDoc.label}</h2>
                   </div>
                 </div>
-                <DocForm docType={selectedDoc} formData={formData} setFormData={setFormData} onPreview={(data) => { setPreviewData(data); setView("preview"); }} petugasData={petugasData} xlsxLoaded={xlsxLoaded} />
+                <DocForm docType={selectedDoc} formData={formData} setFormData={setFormData} onPreview={(data) => { setPreviewData(data); setView("preview"); }} petugasData={petugasData} lampiranData={lampiranData} xlsxLoaded={xlsxLoaded} />
               </div>
             </motion.div>
           )}
@@ -913,6 +1353,12 @@ export default function PortalAdministrasiSE2026() {
                     {selectedDoc?.id === "spj" && <GenerateDocxButton onGenerate={() => generateSpj(SPJ_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
                     {selectedDoc?.id === "spd" && <GenerateDocxButton onGenerate={() => generateSpd(SPD_TEMPLATE_URL, SPD_LAMPIRAN_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
                     {selectedDoc?.id === "surat-tugas" && <GenerateDocxButton onGenerate={() => generateSuratTugas(SURAT_TUGAS_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
+                    {selectedDoc?.id === "lampiran" && (
+                      <>
+                        <GenerateDocxButton label="Unduh Lampiran PML" onGenerate={() => generateLampiran(LAMPIRAN_PML_TEMPLATE_URL, previewData.formValues, previewData.lampiranRows, "PML")} />
+                        <GenerateDocxButton label="Unduh Lampiran PPL" onGenerate={() => generateLampiran(LAMPIRAN_PPL_TEMPLATE_URL, previewData.formValues, previewData.lampiranRows, "PPL")} />
+                      </>
+                    )}
                   </div>
                 </div>
                 <DocPreview docType={selectedDoc} data={previewData} />
@@ -999,7 +1445,7 @@ function GoogleSheetCard({ url, onUrlChange, onLoad, loading, error }) {
 
 // ─── GENERATE DOCX BUTTON ────────────────────────────────────────────────────
 
-function GenerateDocxButton({ onGenerate }) {
+function GenerateDocxButton({ onGenerate, label = "Unduh .docx" }) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState(null);
   const handleGenerate = async () => {
@@ -1008,10 +1454,10 @@ function GenerateDocxButton({ onGenerate }) {
   };
   return (
     <div className="flex flex-col items-end gap-1">
-      <button onClick={handleGenerate} disabled={loading}
+      <button type="button" onClick={handleGenerate} disabled={loading}
         className="inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-5 py-2.5 text-sm font-black text-white shadow-xl shadow-orange-500/20 transition hover:-translate-y-0.5 hover:bg-orange-600 disabled:opacity-60">
         <Download size={16} />
-        {loading ? "Membuat..." : "Unduh .docx"}
+        {loading ? "Membuat..." : label}
       </button>
       {error && <p className="flex items-center gap-1 text-xs font-semibold text-red-500"><AlertCircle size={12} /> {error}</p>}
     </div>
@@ -1301,7 +1747,7 @@ function FilterPesertaHotelGelombangPanel({ xlsxLoaded, formData, setFormData, p
 
 // ─── DOC FORM ─────────────────────────────────────────────────────────────────
 
-function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxLoaded }) {
+function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampiranData = [], xlsxLoaded }) {
   const update = (key, val) => setFormData((p) => ({ ...p, [key]: val }));
 
   const [daftarHadirPeserta,     setDaftarHadirPeserta]     = useState([]);
@@ -1478,6 +1924,16 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
           kelas:                  "-",
         },
         peserta: suratTugasPeserta,
+      });
+      return;
+    }
+
+    if (docType.id === "lampiran") {
+      // Lampiran tidak memakai input Tempat/Gelombang/Kelas.
+      // Data langsung diambil dari sheet bernama "Lampiran" dan tombol PML/PPL akan generate template masing-masing.
+      onPreview({
+        formValues: {},
+        lampiranRows: lampiranData || [],
       });
       return;
     }
@@ -2000,6 +2456,73 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
           </>
         );
 
+      // ── LAMPIRAN ────────────────────────────────────────────────────────────
+      case "lampiran": {
+        const rows = lampiranData || [];
+
+        const generateLampiranPml = async () => {
+          if (!xlsxLoaded) {
+            throw new Error("Data XLSX/Google Sheet belum dimuat.");
+          }
+          if (rows.length === 0) {
+            throw new Error("Sheet Lampiran belum terbaca atau kosong. Pastikan Google Sheet dibaca sebagai XLSX dan nama tab adalah Lampiran.");
+          }
+          await generateLampiran(LAMPIRAN_PML_TEMPLATE_URL, {}, rows, "PML");
+        };
+
+        const generateLampiranPpl = async () => {
+          if (!xlsxLoaded) {
+            throw new Error("Data XLSX/Google Sheet belum dimuat.");
+          }
+          if (rows.length === 0) {
+            throw new Error("Sheet Lampiran belum terbaca atau kosong. Pastikan Google Sheet dibaca sebagai XLSX dan nama tab adalah Lampiran.");
+          }
+          await generateLampiran(LAMPIRAN_PPL_TEMPLATE_URL, {}, rows, "PPL");
+        };
+
+        return (
+          <div className="space-y-5">
+            <div className="rounded-3xl border border-orange-100 bg-orange-50/70 p-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-700">Generate Lampiran</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                Pilih jenis lampiran.
+              </p>
+              <p className="mt-3 text-xs font-bold text-slate-500">
+                Status data: {xlsxLoaded ? `${rows.length} baris Lampiran terbaca` : "data belum dimuat"}
+              </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-3xl border border-orange-100 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100 text-orange-600">
+                  <Users size={22} />
+                </div>
+                <h3 className="text-lg font-black text-slate-900">Lampiran PML</h3>
+                <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                  Format lampiran dengan kolom No, Nama Petugas Lapangan Sensus, Kecamatan/Distrik, Desa/Kampung/Nagari, dan Jumlah SLS/Sub-SLS.
+                </p>
+                <div className="mt-5">
+                  <GenerateDocxButton label="Generate Lampiran PML" onGenerate={generateLampiranPml} />
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-orange-100 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100 text-orange-600">
+                  <FileText size={22} />
+                </div>
+                <h3 className="text-lg font-black text-slate-900">Lampiran PPL</h3>
+                <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+                  Format lampiran dengan kolom No, Kecamatan/Distrik, Desa/Kampung/Nagari, dan Jumlah SLS/Sub-SLS.
+                </p>
+                <div className="mt-5">
+                  <GenerateDocxButton label="Generate Lampiran PPL" onGenerate={generateLampiranPpl} />
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
       default:
         return null;
     }
@@ -2008,11 +2531,13 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, xlsxL
   return (
     <form onSubmit={handleSubmit} className="space-y-5 rounded-[2.5rem] border border-orange-100 bg-white/80 p-6 shadow-xl shadow-orange-900/5 backdrop-blur md:p-10">
       {renderFields()}
-      <div className="border-t border-orange-100 pt-5">
-        <button type="submit" className="group inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-7 py-4 font-black text-white shadow-2xl shadow-orange-500/25 transition hover:-translate-y-1 hover:bg-orange-600">
-          Pratinjau Dokumen <ChevronRight className="transition group-hover:translate-x-1" size={18} />
-        </button>
-      </div>
+      {docType.id !== "lampiran" && (
+        <div className="border-t border-orange-100 pt-5">
+          <button type="submit" className="group inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-7 py-4 font-black text-white shadow-2xl shadow-orange-500/25 transition hover:-translate-y-1 hover:bg-orange-600">
+            Pratinjau Dokumen <ChevronRight className="transition group-hover:translate-x-1" size={18} />
+          </button>
+        </div>
+      )}
     </form>
   );
 }
@@ -2164,6 +2689,53 @@ function SpdDocxPreview({ formValues, peserta }) {
   );
 }
 
+function LampiranDocxPreview({ formValues, lampiranRows }) {
+  const pmlRef = useRef(null);
+  const pplRef = useRef(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [activePreview, setActivePreview] = useState("pml");
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true); setError("");
+        const [blobPml, blobPpl] = await Promise.all([
+          createLampiranBlob(LAMPIRAN_PML_TEMPLATE_URL, formValues || {}, lampiranRows || [], "PML"),
+          createLampiranBlob(LAMPIRAN_PPL_TEMPLATE_URL, formValues || {}, lampiranRows || [], "PPL"),
+        ]);
+        if (cancelled) return;
+        if (pmlRef.current) { pmlRef.current.innerHTML = ""; await renderAsync(blobPml, pmlRef.current, null, RENDER_OPTS); }
+        if (pplRef.current) { pplRef.current.innerHTML = ""; await renderAsync(blobPpl, pplRef.current, null, RENDER_OPTS); }
+      } catch (err) {
+        if (!cancelled) setError(err?.message || "Gagal memuat pratinjau Lampiran.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [formValues, lampiranRows]);
+
+  return (
+    <div className="space-y-4 rounded-[2rem] border border-orange-100 bg-white p-4 shadow-xl shadow-orange-900/5">
+      <style>{docxPreviewStyle}</style>
+      {loading && <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-8 text-center"><p className="text-sm font-black text-orange-700">Memuat pratinjau Lampiran PML &amp; PPL...</p></div>}
+      {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-600">{error}</div>}
+      <div className="flex gap-3">
+        {[{ key: "pml", label: "Preview Lampiran PML" }, { key: "ppl", label: "Preview Lampiran PPL" }].map(({ key, label }) => (
+          <button key={key} type="button" onClick={() => setActivePreview(key)}
+            className={`rounded-2xl px-5 py-2.5 text-sm font-black transition ${activePreview === key ? "bg-orange-600 text-white" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className={activePreview === "pml" ? "block" : "hidden"}><div ref={pmlRef} className="overflow-x-auto rounded-2xl border border-orange-100 bg-white" /></div>
+      <div className={activePreview === "ppl" ? "block" : "hidden"}><div ref={pplRef} className="overflow-x-auto rounded-2xl border border-orange-100 bg-white" /></div>
+    </div>
+  );
+}
+
 // ─── DOC PREVIEW (dispatcher) ─────────────────────────────────────────────────
 
 function DocPreview({ docType, data }) {
@@ -2176,6 +2748,7 @@ function DocPreview({ docType, data }) {
       case "spj":                     return <SpjDocxPreview formValues={data.formValues || {}} peserta={data.peserta || []} />;
       case "spd":                     return <SpdDocxPreview formValues={data.formValues || data} peserta={data.peserta || []} />;
       case "surat-tugas":             return <SuratTugasDocxPreview formValues={data.formValues || {}} peserta={data.peserta || []} />;
+      case "lampiran":                return <LampiranDocxPreview formValues={data.formValues || {}} lampiranRows={data.lampiranRows || []} />;
       default:                        return <p className="text-sm text-slate-500">Dokumen tidak dikenali.</p>;
     }
   };
