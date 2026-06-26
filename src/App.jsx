@@ -84,6 +84,20 @@ function normalizeLampiranRow(row) {
     return "";
   };
 
+  // 🔥 FIX: jangan andalkan exact-match nama header untuk nomor kontrak — variasi
+  // penulisan header di Google Sheet (titik, spasi, urutan kata, dll) gampang
+  // membuat exact-match get() gagal dan hasilnya jadi kosong/undefined.
+  // Cari secara fuzzy: kolom apa pun yang namanya mengandung "kontrak" DAN
+  // mengandung "pml" (atau "ppl") akan dipakai, berapa pun variasi penulisannya.
+  const findKontrakFuzzy = (token) => {
+    for (const [key, value] of Object.entries(normalized)) {
+      if (key.includes("kontrak") && key.includes(token) && String(value ?? "").trim() !== "") {
+        return String(value).trim();
+      }
+    }
+    return "";
+  };
+
   return {
     no: get("no"),
 
@@ -118,6 +132,16 @@ function normalizeLampiranRow(row) {
     gelombang: get("gelombang"),
     hotel: get("tc", "hotel", "tempat").toUpperCase(),
     tc: get("tc", "hotel", "tempat").toUpperCase(),
+
+    // Nomor kontrak per jenis petugas. Dipakai untuk variabel {nomor_kontrak} di
+    // template, sesuai jenis dokumen yang sedang digenerate (PML atau PPL).
+    // Coba exact-match alias dulu, kalau tidak ketemu baru fallback ke fuzzy search.
+    nomor_kontrak_pml:
+      get("no kontrak pml", "nomor kontrak pml", "no_kontrak_pml", "kontrak pml", "no. kontrak pml") ||
+      findKontrakFuzzy("pml"),
+    nomor_kontrak_ppl:
+      get("no kontrak ppl", "nomor kontrak ppl", "no_kontrak_ppl", "kontrak ppl", "no. kontrak ppl") ||
+      findKontrakFuzzy("ppl"),
   };
 }
 
@@ -137,6 +161,7 @@ const LAMPIRAN_FORWARD_FILL_KEYS = [
   "kdprov", "kdkab", "kdkec", "kddesa",
   "nmprov", "nmkab", "kecamatan", "kelurahan",
   "jabatan", "kelas", "gelombang", "hotel", "tc",
+  "nomor_kontrak_pml", "nomor_kontrak_ppl",
 ];
 
 function forwardFillLampiranRows(rows) {
@@ -180,6 +205,25 @@ function parseLampiranXlsxData(arrayBuffer) {
   console.log("Raw Lampiran:", raw);
 
   const normalizedRows = raw.map(normalizeLampiranRow);
+
+  // 🔥 Diagnostik: tampilkan contoh hasil pembacaan No Kontrak PML/PPL dari 3 baris
+  // pertama, supaya kalau masih kosong/undefined, gampang dicek header apa saja yang
+  // terbaca dari sheet vs nilai yang berhasil diambil.
+  if (normalizedRows.length > 0) {
+    console.log(
+      "Lampiran: header mentah baris pertama ->",
+      raw.length ? Object.keys(raw[0]) : []
+    );
+    console.log(
+      "Lampiran: contoh hasil No Kontrak PML/PPL (3 baris pertama) ->",
+      normalizedRows.slice(0, 3).map((r) => ({
+        nama_pml: r.nama_pml,
+        nama_ppl: r.nama_ppl,
+        nomor_kontrak_pml: r.nomor_kontrak_pml,
+        nomor_kontrak_ppl: r.nomor_kontrak_ppl,
+      }))
+    );
+  }
 
   // 🔥 FIX: Google Sheet biasanya punya banyak baris kosong tambahan di ekor sheet
   // (range default jauh lebih panjang dari data aslinya). Kalau forward-fill langsung
@@ -901,6 +945,11 @@ function groupLampiranRows(lampiranRows = [], jenis = "PML") {
         kecamatan: cleanText(r.kecamatan).toUpperCase(),
         kelurahan: cleanText(r.kelurahan).toUpperCase(),
 
+        // Nomor kontrak dibawa dari baris pertama tiap grup. Diasumsikan konsisten
+        // untuk satu petugas yang sama (PML/PPL yang sama harus punya 1 nomor kontrak).
+        nomor_kontrak_pml: cleanText(r.nomor_kontrak_pml),
+        nomor_kontrak_ppl: cleanText(r.nomor_kontrak_ppl),
+
         // 🔥 FIX: pakai SET untuk UNIQUE SLS
         slsSet: new Set(),
       });
@@ -941,6 +990,22 @@ function buildLampiranTemplateData(formValues, lampiranRows = [], jenis = "PML")
 
   const grouped = groupLampiranRows(lampiranRows || [], jenis);
 
+  // 🔥 BARU: variabel "sekali saja" untuk ditaruh di ATAS surat (di luar blok
+  // {#peserta}...{/peserta}), bukan per baris tabel.
+  // - nomor_kontrak: nomor kontrak orang ini (sama untuk semua barisnya, ambil satu saja
+  //   dari baris pertama).
+  // - total_jumlah: total SEMUA SLS/Sub-SLS milik orang ini, digabung dari semua
+  //   kecamatan/kelurahan yang dia kerjakan (bukan cuma satu baris).
+  // - total_jumlah_40 / total_jumlah_60: pembagian 40%/60% dari total_jumlah, dengan
+  //   total_jumlah_60 = total_jumlah - total_jumlah_40 (supaya jumlahnya pas, tidak ada
+  //   selisih pembulatan).
+  const nomorKontrakDokumen = cleanText(
+    isPml ? lampiranRows?.[0]?.nomor_kontrak_pml : lampiranRows?.[0]?.nomor_kontrak_ppl
+  );
+  const totalJumlahDokumen = grouped.reduce((sum, r) => sum + (r.jumlah || 0), 0);
+  const totalJumlah40Dokumen = Math.round(totalJumlahDokumen * 0.4);
+  const totalJumlah60Dokumen = totalJumlahDokumen - totalJumlah40Dokumen;
+
   return {
     jenis_lampiran: jenis,
     nama_petugas: namaPetugas,
@@ -951,23 +1016,48 @@ function buildLampiranTemplateData(formValues, lampiranRows = [], jenis = "PML")
     gelombang: formValues.gelombang || "",
     kelas: formValues.kelas || "",
     jumlah_baris: grouped.length,
-    peserta: grouped.map((r, idx) => ({
-      no: idx + 1,
 
-      // Kompatibel dengan template lama:
-      // - {nama_petugas} untuk nama utama
-      // - {nama_pml} untuk PENGAWAS
-      // - {nama_ppl} untuk PENCACAH
-      nama_petugas: namaPetugas,
-      nama_pml: isPml ? namaPetugas : r.nama_pml || "",
-      nama_ppl: !isPml ? namaPetugas : r.nama_ppl || "",
+    // Variabel "sekali saja" di atas surat:
+    nomor_kontrak: nomorKontrakDokumen,
+    total_jumlah: totalJumlahDokumen,
+    total_jumlah_40: totalJumlah40Dokumen,
+    total_jumlah_60: totalJumlah60Dokumen,
 
-      kecamatan: formatKodeNama(r.kdkec, r.kecamatan),
-      kelurahan: formatKodeNama(r.kddesa, r.kelurahan),
-      sls: r.sls || "",
-      subsls: r.subsls || "",
-      jumlah: r.jumlah || 0,
-    })),
+    peserta: grouped.map((r, idx) => {
+      // 🔥 FIX BARU: variabel tambahan untuk template.
+      // - nomor_kontrak: ambil dari "No Kontrak PML" kalau jenisnya PML, atau
+      //   "No Kontrak PPL" kalau jenisnya PPL.
+      // - jumlah_40 / jumlah_60: pembagian 40%/60% dari jumlah SLS/Sub-SLS baris ini.
+      //   jumlah_60 dihitung sebagai (total - jumlah_40), BUKAN dibulatkan sendiri-sendiri,
+      //   supaya jumlah_40 + jumlah_60 selalu pas balik ke jumlah total (tidak ada selisih
+      //   pembulatan kalau dijumlahkan manual).
+      const totalJumlah = r.jumlah || 0;
+      const jumlah40 = Math.round(totalJumlah * 0.4);
+      const jumlah60 = totalJumlah - jumlah40;
+      const nomorKontrak = isPml ? (r.nomor_kontrak_pml || "") : (r.nomor_kontrak_ppl || "");
+
+      return {
+        no: idx + 1,
+
+        // Kompatibel dengan template lama:
+        // - {nama_petugas} untuk nama utama
+        // - {nama_pml} untuk PENGAWAS
+        // - {nama_ppl} untuk PENCACAH
+        nama_petugas: namaPetugas,
+        nama_pml: isPml ? namaPetugas : r.nama_pml || "",
+        nama_ppl: !isPml ? namaPetugas : r.nama_ppl || "",
+
+        kecamatan: formatKodeNama(r.kdkec, r.kecamatan),
+        kelurahan: formatKodeNama(r.kddesa, r.kelurahan),
+        sls: r.sls || "",
+        subsls: r.subsls || "",
+        jumlah: totalJumlah,
+
+        nomor_kontrak: nomorKontrak,
+        jumlah_40: jumlah40,
+        jumlah_60: jumlah60,
+      };
+    }),
   };
 }
 
@@ -1153,7 +1243,7 @@ export default function PortalAdministrasiSE2026() {
       setPetugasData(data);
       setLampiranData(lampiran || []);
       setXlsxLoaded(true);
-      setXlsxFileName(`(${data.length} petugas, ${lampiran?.length || 0} baris lampiran)`);
+      setXlsxFileName(`Google Sheet (${data.length} petugas, ${lampiran?.length || 0} baris lampiran)`);
     } catch (err) {
       setGoogleSheetError(`Gagal memuat Google Sheet: ${err.message}`);
     } finally {
@@ -2485,7 +2575,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
             <div className="rounded-3xl border border-orange-100 bg-orange-50/70 p-5">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-700">Generate Lampiran</p>
               <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                Pilih jenis lampiran.
+                Pilih jenis lampiran. Tidak perlu input Tempat, Gelombang, atau Kelas. Seluruh data diambil langsung dari sheet <span className="font-black text-slate-800">Lampiran</span>.
               </p>
               <p className="mt-3 text-xs font-bold text-slate-500">
                 Status data: {xlsxLoaded ? `${rows.length} baris Lampiran terbaca` : "data belum dimuat"}
