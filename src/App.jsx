@@ -1003,7 +1003,7 @@ function buildLampiranTemplateData(formValues, lampiranRows = [], jenis = "PML")
     isPml ? lampiranRows?.[0]?.nomor_kontrak_pml : lampiranRows?.[0]?.nomor_kontrak_ppl
   );
   const totalJumlahDokumen = grouped.reduce((sum, r) => sum + (r.jumlah || 0), 0);
-  const totalJumlah40Dokumen = Math.round(totalJumlahDokumen * 0.4);
+  const totalJumlah40Dokumen = Math.ceil(totalJumlahDokumen * 0.4);
   const totalJumlah60Dokumen = totalJumlahDokumen - totalJumlah40Dokumen;
 
   return {
@@ -1032,7 +1032,7 @@ function buildLampiranTemplateData(formValues, lampiranRows = [], jenis = "PML")
       //   supaya jumlah_40 + jumlah_60 selalu pas balik ke jumlah total (tidak ada selisih
       //   pembulatan kalau dijumlahkan manual).
       const totalJumlah = r.jumlah || 0;
-      const jumlah40 = Math.round(totalJumlah * 0.4);
+      const jumlah40 = Math.ceil(totalJumlah * 0.4);
       const jumlah60 = totalJumlah - jumlah40;
       const nomorKontrak = isPml ? (r.nomor_kontrak_pml || "") : (r.nomor_kontrak_ppl || "");
 
