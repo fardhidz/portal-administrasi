@@ -59,8 +59,19 @@ function normalizeRowHeaders(row) {
 
 function parseXlsxData(arrayBuffer) {
   const workbook = XLSX.read(arrayBuffer, { type: "array" });
-  const sheet = workbook.Sheets[workbook.SheetNames[5]];
-  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+  
+  // Cari sheet yang berisi data administrasi secara otomatis
+  const adminSheetInfo = findAdministrasiSheet(workbook);
+  if (!adminSheetInfo) {
+    console.warn("Sheet data administrasi tidak ditemukan. Mencoba sheet pertama...");
+    // Fallback ke sheet pertama jika tidak ditemukan
+    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    if (!firstSheet) throw new Error("File XLSX kosong");
+    const raw = XLSX.utils.sheet_to_json(firstSheet, { defval: "", raw: false });
+    return raw.map(normalizeRowHeaders).filter(r => r.nama !== "" || r.nik !== "" || r.sobatId !== "");
+  }
+  
+  const raw = adminSheetInfo.data;
   return raw.map(normalizeRowHeaders).filter(r => r.nama !== "" || r.nik !== "" || r.sobatId !== "");
 }
 
@@ -280,7 +291,26 @@ function isAdministrasiSheet(headers) {
   const keys = normalizeHeaderKeys(headers);
   const hasName = keys.some((h) => ["nama", "nama lengkap", "nama_lengkap", "nama-lengkap"].includes(h));
   const hasJabatan = keys.some((h) => ["jabatan", "posisi"].includes(h));
-  return hasName && hasJabatan && keys.includes("tc") && keys.includes("kelas") && keys.includes("gelombang");
+  const hasKelas = keys.some((h) => ["kelas"].includes(h));
+  const hasGelombang = keys.some((h) => ["gelombang"].includes(h));
+  // "tc" dapat berupa kolom terpisah atau bagian dari header lain (seperti "Hotel")
+  const hasTc = keys.some((h) => ["tc", "hotel", "tempat"].includes(h));
+  return hasName && hasJabatan && hasKelas && hasGelombang && hasTc;
+}
+
+// Fungsi untuk menemukan sheet yang berisi data administrasi
+function findAdministrasiSheet(workbook) {
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+    if (data.length > 0) {
+      const headers = Object.keys(data[0]).map((h) => String(h ?? "").trim());
+      if (isAdministrasiSheet(headers)) {
+        return { sheet, data, headers, sheetName };
+      }
+    }
+  }
+  return null;
 }
 
 async function loadGoogleSheet(xlsxUrl) {
@@ -290,15 +320,16 @@ async function loadGoogleSheet(xlsxUrl) {
   const arrayBuffer = await response.arrayBuffer();
   const workbook = XLSX.read(arrayBuffer, { type: "array" });
 
-  // Data administrasi tetap mengikuti struktur lama: sheet index ke-6.
-  // Jika suatu saat struktur berubah, bagian ini yang perlu disesuaikan.
-  const mainSheet = workbook.Sheets[workbook.SheetNames[5]];
-  if (!mainSheet) {
-    throw new Error(`Sheet data utama tidak ditemukan. Sheet tersedia: ${workbook.SheetNames.join(", ")}`);
+  // Cari sheet yang berisi data administrasi secara otomatis
+  const adminSheetInfo = findAdministrasiSheet(workbook);
+  if (!adminSheetInfo) {
+    const availableSheets = workbook.SheetNames.map((name, idx) => `[${idx}] ${name}`).join(", ");
+    throw new Error(`Sheet data administrasi tidak ditemukan. Sheet tersedia: ${availableSheets}`);
   }
 
-  const raw = XLSX.utils.sheet_to_json(mainSheet, { defval: "", raw: false });
-  const rawHeaders = raw.length ? Object.keys(raw[0]).map((h) => String(h ?? "").trim()) : [];
+  const { data: raw, headers: rawHeaders, sheetName: foundSheetName } = adminSheetInfo;
+  console.log(`✓ Sheet data administrasi ditemukan: "${foundSheetName}"`);
+  
   const data = raw.map(normalizeRowHeaders).filter((r) => r.nama !== "" || r.nik !== "" || r.sobatId !== "");
   const lampiran = parseLampiranXlsxData(arrayBuffer);
 
