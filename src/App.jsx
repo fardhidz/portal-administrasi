@@ -1241,6 +1241,17 @@ async function generateLampiran(templateUrl, formValues, lampiranRows, jenis) {
     );
   }
 }
+
+// Generate single lampiran (one person) — fetch template once and render one doc
+async function generateSingleLampiran(templateUrl, formValues, lampiranRows, jenis, displayName) {
+  if (!lampiranRows || lampiranRows.length === 0) throw new Error("Tidak ada data untuk lampiran yang dipilih");
+  const templateResponse = await fetch(templateUrl);
+  if (!templateResponse.ok) throw new Error(`Gagal memuat template lampiran: ${templateResponse.status} ${templateResponse.statusText}`);
+  const templateArrayBuffer = await templateResponse.arrayBuffer();
+  const blob = createLampiranBlobFromTemplateBuffer(templateArrayBuffer, formValues || {}, lampiranRows, jenis);
+  const safeName = sanitizeFileName(displayName || (jenis + "-lampiran"));
+  saveAs(blob, `Lampiran ${jenis} - ${safeName}.docx`);
+}
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
 export default function PortalAdministrasiSE2026() {
@@ -1258,6 +1269,10 @@ export default function PortalAdministrasiSE2026() {
   const [googleSheetError,   setGoogleSheetError]   = useState(null);
   const [googleSheetLoading, setGoogleSheetLoading] = useState(false);
 
+  // Lampiran preview controls: pilih jenis (PML/PPL) dan pilih identity (email/name) untuk generate satu-per-orang
+  const [lampiranPreviewJenis, setLampiranPreviewJenis] = useState("PML");
+  const [lampiranPreviewIdentity, setLampiranPreviewIdentity] = useState("__ALL__");
+
   const loadGoogleSheetData = async () => {
     const normalized = normalizeGoogleSheetUrl(googleSheetUrl);
     if (!normalized) { setGoogleSheetError("URL Google Sheets tidak valid."); return; }
@@ -1274,7 +1289,7 @@ export default function PortalAdministrasiSE2026() {
       setPetugasData(data);
       setLampiranData(lampiran || []);
       setXlsxLoaded(true);
-      setXlsxFileName(`Google Sheet (${data.length} petugas, ${lampiran?.length || 0} baris lampiran)`);
+      setXlsxFileName(`${data.length} petugas, ${lampiran?.length || 0} lampiran`);
     } catch (err) {
       setGoogleSheetError(`Gagal memuat Google Sheet: ${err.message}`);
     } finally {
@@ -1475,10 +1490,64 @@ export default function PortalAdministrasiSE2026() {
                     {selectedDoc?.id === "spd" && <GenerateDocxButton onGenerate={() => generateSpd(SPD_TEMPLATE_URL, SPD_LAMPIRAN_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
                     {selectedDoc?.id === "surat-tugas" && <GenerateDocxButton onGenerate={() => generateSuratTugas(SURAT_TUGAS_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
                     {selectedDoc?.id === "lampiran" && (
-                      <>
-                        <GenerateDocxButton label="Unduh Lampiran PML" onGenerate={() => generateLampiran(LAMPIRAN_PML_TEMPLATE_URL, previewData.formValues, previewData.lampiranRows, "PML")} />
-                        <GenerateDocxButton label="Unduh Lampiran PPL" onGenerate={() => generateLampiran(LAMPIRAN_PPL_TEMPLATE_URL, previewData.formValues, previewData.lampiranRows, "PPL")} />
-                      </>
+                      <div className="flex items-center gap-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                            <select value={lampiranPreviewJenis} onChange={(e) => { setLampiranPreviewJenis(e.target.value); setLampiranPreviewIdentity("__ALL__"); }}
+                              className="w-full sm:w-40 rounded-2xl border border-orange-100 bg-white/80 px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm outline-none">
+                            <option value="PML">PML</option>
+                            <option value="PPL">PPL</option>
+                          </select>
+
+                            <select value={lampiranPreviewIdentity} onChange={(e) => setLampiranPreviewIdentity(e.target.value)}
+                              className="w-full sm:w-72 rounded-2xl border border-orange-100 bg-white/80 px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm outline-none">
+                            <option value="__ALL__">— Semua —</option>
+                            {(() => {
+                              const rows = previewData?.lampiranRows || [];
+                              const isPml = upperText(lampiranPreviewJenis) === "PML";
+                              const seen = new Set();
+                              return rows.map((r) => {
+                                const displayName = isPml ? cleanText(r.nama_pml) : cleanText(r.nama_ppl);
+                                if (!displayName) return null;
+                                const email = cleanText(isPml ? r.email_pengawas : r.email_pencacah) || "";
+                                const emailKey = upperText(email);
+                                const identity = emailKey || `NAMA::${upperText(displayName)}`;
+                                if (seen.has(identity)) return null;
+                                seen.add(identity);
+                                return <option key={identity} value={identity}>{displayName}</option>;
+                              });
+                            })()}
+                          </select>
+
+                            <button onClick={async () => {
+                            try {
+                              if (!previewData?.lampiranRows) throw new Error("Data lampiran belum tersedia");
+                              const rows = previewData.lampiranRows || [];
+                              const isPml = upperText(lampiranPreviewJenis) === "PML";
+                              if (lampiranPreviewIdentity === "__ALL__") {
+                                // generate all for this jenis as zip
+                                await generateLampiran(isPml ? LAMPIRAN_PML_TEMPLATE_URL : LAMPIRAN_PPL_TEMPLATE_URL, previewData.formValues, rows, lampiranPreviewJenis);
+                                return;
+                              }
+                              const filtered = [];
+                              for (const r of rows) {
+                                const displayName = isPml ? cleanText(r.nama_pml) : cleanText(r.nama_ppl);
+                                const email = cleanText(isPml ? r.email_pengawas : r.email_pencacah) || "";
+                                const emailKey = upperText(email);
+                                const identity = emailKey || `NAMA::${upperText(displayName)}`;
+                                if (identity === lampiranPreviewIdentity) filtered.push(r);
+                              }
+                              if (filtered.length === 0) throw new Error("Tidak ada data untuk identity yang dipilih");
+                              const displayName = (isPml ? filtered[0].nama_pml : filtered[0].nama_ppl) || "Tanpa Nama";
+                              await generateSingleLampiran(isPml ? LAMPIRAN_PML_TEMPLATE_URL : LAMPIRAN_PPL_TEMPLATE_URL, previewData.formValues, filtered, lampiranPreviewJenis, displayName);
+                            } catch (err) { alert(err.message || err); }
+                            }} type="button" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-4 py-2 text-sm font-black text-white shadow transition hover:bg-orange-600">Generate Terpilih</button>
+                          </div>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                          <GenerateDocxButton label="Unduh Semua Lampiran PML" onGenerate={() => generateLampiran(LAMPIRAN_PML_TEMPLATE_URL, previewData.formValues, previewData.lampiranRows, "PML")} />
+                          <GenerateDocxButton label="Unduh Semua Lampiran PPL" onGenerate={() => generateLampiran(LAMPIRAN_PPL_TEMPLATE_URL, previewData.formValues, previewData.lampiranRows, "PPL")} />
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1894,6 +1963,9 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
   const [pengeluaranPeserta,      setPengeluaranPeserta]      = useState([]);
   const [pengeluaranFiltered,     setPengeluaranFiltered]     = useState(false);
   const [pengeluaranFilterGroup,  setPengeluaranFilterGroup]  = useState("");
+
+  // Lampiran form controls: combined manual select for PML + PPL
+  const [lampiranManualSelect, setLampiranManualSelect] = useState("");
 
   React.useEffect(() => {
     if (docType.id === "daftar-hadir" && !formData.jamMulai && !formData.jamSelesai) {
@@ -2606,11 +2678,66 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
             <div className="rounded-3xl border border-orange-100 bg-orange-50/70 p-5">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-700">Generate Lampiran</p>
               <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                Pilih jenis lampiran. Tidak perlu input Tempat, Gelombang, atau Kelas. Seluruh data diambil langsung dari sheet <span className="font-black text-slate-800">Lampiran</span>.
+                Pilih jenis lampiran
               </p>
               <p className="mt-3 text-xs font-bold text-slate-500">
                 Status data: {xlsxLoaded ? `${rows.length} baris Lampiran terbaca` : "data belum dimuat"}
               </p>
+            </div>
+
+            {/* Manual generate: combined dropdown PML + PPL */}
+            <div className="rounded-2xl border border-orange-100 bg-white p-4">
+              <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-orange-700">Generate Manual (PML &amp; PPL)</p>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <select value={lampiranManualSelect} onChange={(e) => setLampiranManualSelect(e.target.value)}
+                  className="w-full sm:w-96 rounded-2xl border border-orange-100 bg-white/80 px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm outline-none">
+                  <option value="">— Pilih Petugas (PML / PPL) —</option>
+                  {(() => {
+                    const map = new Map();
+                    for (const r of rows) {
+                      // PML
+                      const namePml = cleanText(r.nama_pml);
+                      if (namePml) {
+                        const email = cleanText(r.email_pengawas) || "";
+                        const id = email ? upperText(email) : `NAMA::${upperText(namePml)}`;
+                        const key = `PML::${id}`;
+                        if (!map.has(key)) map.set(key, { value: key, label: `${namePml} (PML)` , name: namePml });
+                      }
+                      // PPL
+                      const namePpl = cleanText(r.nama_ppl);
+                      if (namePpl) {
+                        const email = cleanText(r.email_pencacah) || "";
+                        const id = email ? upperText(email) : `NAMA::${upperText(namePpl)}`;
+                        const key = `PPL::${id}`;
+                        if (!map.has(key)) map.set(key, { value: key, label: `${namePpl} (PPL)`, name: namePpl });
+                      }
+                    }
+                    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'id-ID', { sensitivity: 'base' })).map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ));
+                  })()}
+                </select>
+
+                <button onClick={async () => {
+                  try {
+                    if (!lampiranManualSelect) { alert('Pilih petugas terlebih dahulu.'); return; }
+                    if (!xlsxLoaded) throw new Error('Data belum dimuat');
+                    const sepIndex = lampiranManualSelect.indexOf('::');
+                    const role = lampiranManualSelect.slice(0, sepIndex);
+                    const id = lampiranManualSelect.slice(sepIndex + 2);
+                    const isPml = role === 'PML';
+                    const filtered = rows.filter((r) => {
+                      const name = isPml ? cleanText(r.nama_pml) : cleanText(r.nama_ppl);
+                      const email = isPml ? cleanText(r.email_pengawas) || "" : cleanText(r.email_pencacah) || "";
+                      const key = email ? upperText(email) : `NAMA::${upperText(name)}`;
+                      return key === id;
+                    });
+                    if (filtered.length === 0) throw new Error('Tidak ada data untuk pilihan ini');
+                    const displayName = isPml ? filtered[0].nama_pml : filtered[0].nama_ppl;
+                    await generateSingleLampiran(isPml ? LAMPIRAN_PML_TEMPLATE_URL : LAMPIRAN_PPL_TEMPLATE_URL, {}, filtered, isPml ? 'PML' : 'PPL', displayName || 'Tanpa Nama');
+                  } catch (err) { alert(err.message || err); }
+                }} type="button" className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-4 py-2 text-sm font-black text-white shadow transition hover:bg-orange-600">Generate Terpilih</button>
+              </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -2639,6 +2766,12 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
                   <GenerateDocxButton label="Generate Lampiran PPL" onGenerate={generateLampiranPpl} />
                 </div>
               </div>
+            </div>
+
+            <div className="rounded-2xl border border-orange-100 bg-white/75 p-4 text-sm font-semibold text-slate-600">
+              <p className="font-bold text-slate-800">Statistik unik email</p>
+              <p className="mt-1">PML unik (email): {new Set(rows.map(r => upperText(cleanText(r.email_pengawas))).filter(Boolean)).size}</p>
+              <p className="mt-1">PPL unik (email): {new Set(rows.map(r => upperText(cleanText(r.email_pencacah))).filter(Boolean)).size}</p>
             </div>
           </div>
         );
@@ -2843,6 +2976,7 @@ function LampiranDocxPreview({ formValues, lampiranRows }) {
       <style>{docxPreviewStyle}</style>
       {loading && <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-8 text-center"><p className="text-sm font-black text-orange-700">Memuat pratinjau Lampiran PML &amp; PPL...</p></div>}
       {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-600">{error}</div>}
+      {/* Preview-only: removed manual controls (moved to form) */}
       <div className="flex gap-3">
         {[{ key: "pml", label: "Preview Lampiran PML" }, { key: "ppl", label: "Preview Lampiran PPL" }].map(({ key, label }) => (
           <button key={key} type="button" onClick={() => setActivePreview(key)}
@@ -2889,3 +3023,4 @@ function DocPreview({ docType, data }) {
     </div>
   );
 }
+
