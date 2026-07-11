@@ -28,9 +28,9 @@ const DOC_TYPES = [
   { id: "spj",           icon: <FileText />,      label: "SPJ", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "orange", disabled: true, lockedMessage: "Fitur SPJ dikunci. Saat ini hanya Lampiran yang aktif." },
   { id: "spd",           icon: <MapIcon />,           label: "SPD", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "amber", disabled: true, lockedMessage: "Fitur SPD dikunci. Saat ini hanya Lampiran yang aktif." },
   { id: "surat-tugas",   icon: <Users />,         label: "Surtug", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "orange", disabled: true, lockedMessage: "Fitur Surat Tugas dikunci. Saat ini hanya Lampiran yang aktif." },
-  { id: "bapp",          icon: <FileText />,      label: "BAPP", desc: "BAPP PML/PPL dari data sheet Pembayaran", color: "amber" },
-  { id: "surat-pernyataan-penyelesaian-lapangan", icon: <FileText />, label: "Surat Pernyataan Penyelesaian Lapangan", desc: "PML dari data sheet Pembayaran", color: "amber" },
-  { id: "lampiran",      icon: <FileText />,      label: "Lampiran", desc: "Lampiran wilayah kerja PML/PPL", color: "amber" },
+  { id: "bapp",          icon: <FileText />,      label: "BAPP", desc: "BAPP PML/PPL", color: "amber" },
+  { id: "surat-pernyataan-penyelesaian-lapangan", icon: <FileText />, label: "Surat Pernyataan Penyelesaian Lapangan", desc: "Khusus PML", color: "amber" },
+  { id: "lampiran",      icon: <FileText />,      label: "Lampiran", desc: "Lampiran SPK PML/PPL", color: "amber" },
 ];
 
 // ─── XLSX PARSER ─────────────────────────────────────────────────────────────
@@ -3090,7 +3090,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
             <div className="rounded-3xl border border-orange-100 bg-orange-50/70 p-5">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-700">BAPP PML/PPL</p>
               <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                Sumber data berasal dari sheet Pembayaran pada link spreadsheet yang sama. Pilih role, tentukan tanggal surat, lalu unduh dokumen manual atau semua.
+                Pilih role, tentukan tanggal surat, lalu unduh dokumen manual atau semua.
               </p>
               <p className="mt-3 text-xs font-bold text-slate-500">
                 Data terbaca: {bappData.length} baris dari sheet Pembayaran
@@ -3211,7 +3211,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
             <div className="rounded-3xl border border-orange-100 bg-orange-50/70 p-5">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-700">Surat Pernyataan Penyelesaian Lapangan</p>
               <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                Dokumen khusus PML dari sheet Pembayaran. Pilih nama untuk unduh manual, atau unduh semua dalam batch 150 orang.
+                Pilih nama untuk unduh manual, atau unduh semua dalam batch.
               </p>
               <p className="mt-3 text-xs font-bold text-slate-500">
                 Data terbaca: {bappData.length} baris dari sheet Pembayaran
