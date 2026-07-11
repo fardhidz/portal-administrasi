@@ -9,7 +9,7 @@ import {
   FileText, Users, ClipboardList, Car, Receipt, Briefcase,
   Map as MapIcon, ChevronRight, X, Printer, ArrowLeft, Check, Plus,
   Trash2, Menu, LayoutDashboard, Upload, Download, Filter,
-  AlertCircle, CheckCircle, MapPin,
+  AlertCircle, CheckCircle, MapPin, LoaderCircle,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import PizZip from "pizzip";
@@ -21,13 +21,15 @@ import { renderAsync } from "docx-preview";
 // ─── DATA ────────────────────────────────────────────────────────────────────
 
 const DOC_TYPES = [
-  { id: "daftar-hadir",  icon: <ClipboardList />, label: "Daftar Hadir", desc: "Absensi kehadiran peserta pelatihan", color: "orange" },
-  { id: "tanda-terima",  icon: <Briefcase />,     label: "Tanda Terima", desc: "Bukti serah terima perlengkapan petugas", color: "amber" },
-  { id: "surat-pernyataan-kendaraan", icon: <Car />, label: "Super Kendis", desc: "Surat pernyataan tidak menggunakan kendaraan dinas", color: "orange" },
-  { id: "pengeluaran-riil", icon: <Receipt />,    label: "DPR", desc: "Rincian pengeluaran operasional petugas", color: "amber" },
-  { id: "spj",           icon: <FileText />,      label: "SPJ", desc: "SPJ", color: "orange" },
-  { id: "spd",           icon: <MapIcon />,           label: "SPD", desc: "Surat Perjalanan Dinas", color: "amber" },
-  { id: "surat-tugas",   icon: <Users />,         label: "Surtug", desc: "Surat tugas pelaksanaan kegiatan", color: "orange" },
+  { id: "daftar-hadir",  icon: <ClipboardList />, label: "Daftar Hadir", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "orange", disabled: true, lockedMessage: "Fitur Daftar Hadir dikunci. Saat ini hanya Lampiran yang aktif." },
+  { id: "tanda-terima",  icon: <Briefcase />,     label: "Tanda Terima", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "amber", disabled: true, lockedMessage: "Fitur Tanda Terima dikunci. Saat ini hanya Lampiran yang aktif." },
+  { id: "surat-pernyataan-kendaraan", icon: <Car />, label: "Super Kendis", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "orange", disabled: true, lockedMessage: "Fitur Super Kendis dikunci. Saat ini hanya Lampiran yang aktif." },
+  { id: "pengeluaran-riil", icon: <Receipt />,    label: "DPR", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "amber", disabled: true, lockedMessage: "Fitur DPR dikunci. Saat ini hanya Lampiran yang aktif." },
+  { id: "spj",           icon: <FileText />,      label: "SPJ", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "orange", disabled: true, lockedMessage: "Fitur SPJ dikunci. Saat ini hanya Lampiran yang aktif." },
+  { id: "spd",           icon: <MapIcon />,           label: "SPD", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "amber", disabled: true, lockedMessage: "Fitur SPD dikunci. Saat ini hanya Lampiran yang aktif." },
+  { id: "surat-tugas",   icon: <Users />,         label: "Surtug", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "orange", disabled: true, lockedMessage: "Fitur Surat Tugas dikunci. Saat ini hanya Lampiran yang aktif." },
+  { id: "bapp",          icon: <FileText />,      label: "BAPP", desc: "BAPP PML/PPL dari data sheet Pembayaran", color: "amber" },
+  { id: "surat-pernyataan-penyelesaian-lapangan", icon: <FileText />, label: "Surat Pernyataan Penyelesaian Lapangan", desc: "PML dari data sheet Pembayaran", color: "amber" },
   { id: "lampiran",      icon: <FileText />,      label: "Lampiran", desc: "Lampiran wilayah kerja PML/PPL", color: "amber" },
 ];
 
@@ -73,6 +75,132 @@ function parseXlsxData(arrayBuffer) {
   
   const raw = adminSheetInfo.data;
   return raw.map(normalizeRowHeaders).filter(r => r.nama !== "" || r.nik !== "" || r.sobatId !== "");
+}
+
+function normalizeBappRow(row) {
+  const normalized = {};
+  Object.entries(row).forEach(([k, v]) => {
+    const key = String(k ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+    normalized[key] = String(v ?? "").trim();
+  });
+
+  const get = (...keys) => {
+    for (const key of keys) {
+      const value = normalized[key];
+      if (value != null && String(value).trim() !== "") return String(value).trim();
+    }
+    return "";
+  };
+
+  return {
+    no: get("no", "nomor"),
+    nama: get("nama", "nama lengkap", "nama_lengkap", "nama petugas", "nama peserta", "nama_petugas"),
+    jabatan: get("jabatan", "posisi", "jenis petugas", "role", "kategori"),
+    jabatan_raw: get("jabatan", "posisi", "jenis petugas", "role", "kategori"),
+    wilayah: get("wilayah", "wil tugas", "wil. tugas", "wilayah tugas", "kecamatan", "asal"),
+    email: get("email", "email petugas", "email peserta", "mail"),
+    kelas: get("kelas"),
+    gelombang: get("gelombang"),
+    tempat: get("tempat", "hotel", "tc"),
+    telp: get("telp", "no hp", "nomor hp"),
+    nama_pml: get("nama pml", "pengawas"),
+    nama_ppl: get("nama ppl", "pencacah"),
+    nik: get("nik", "nik petugas", "nik peserta"),
+    sls_40: get("sls 40%", "sls 40", "sls_40", "sls40", "sls 40 persen"),
+    nomor_spk: get("nomor spk", "nomor_spk", "nomor spk", "nomor kontrak", "nomor_kontrak", "spk"),
+    nomor_kontrak: get("nomor spk", "nomor_spk", "nomor spk", "nomor kontrak", "nomor_kontrak", "spk"),
+  };
+}
+
+function parseBappData(arrayBuffer) {
+  const workbook = XLSX.read(arrayBuffer, { type: "array" });
+  const sheetName = workbook.SheetNames.find(
+    (name) => String(name ?? "").trim().toLowerCase() === "pembayaran"
+  );
+
+  if (!sheetName) {
+    console.warn("Sheet bernama 'Pembayaran' tidak ditemukan; BAPP tidak akan memuat data.");
+    return [];
+  }
+
+  const sheet = workbook.Sheets[sheetName];
+  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+  return raw.map(normalizeBappRow).filter((r) => r.nama || r.email || r.jabatan);
+}
+
+function isBappRowForRole(row, role = "PML") {
+  const jabatan = upperText(row?.jabatan || row?.jabatan_raw || "");
+  if (role === "PML") return /PML|PENGAWAS/.test(jabatan);
+  if (role === "PPL") return /PPL|PENCACAH/.test(jabatan);
+  return true;
+}
+
+function extractNomorPrefix(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const match = text.match(/(\d+)/);
+  return match ? match[1] : "";
+}
+
+function parseDateInput(dateStr) {
+  if (!dateStr) return null;
+  const parts = String(dateStr).split("-");
+  if (parts.length === 3) {
+    const [year, month, day] = parts.map(Number);
+    if ([year, month, day].every((n) => Number.isFinite(n))) {
+      return new Date(year, month - 1, day);
+    }
+  }
+  const parsed = new Date(dateStr);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function numberToIndonesianWords(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 1 || number > 31) return "";
+  const words = [
+    "", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan",
+    "sepuluh", "sebelas", "dua belas", "tiga belas", "empat belas", "lima belas", "enam belas",
+    "tujuh belas", "delapan belas", "sembilan belas", "dua puluh", "dua puluh satu",
+    "dua puluh dua", "dua puluh tiga", "dua puluh empat", "dua puluh lima", "dua puluh enam",
+    "dua puluh tujuh", "dua puluh delapan", "dua puluh sembilan", "tiga puluh", "tiga puluh satu"
+  ];
+  return words[number];
+}
+
+function getBappDateParts(dateStr) {
+  const parsed = parseDateInput(dateStr);
+  if (!parsed) return { hari_terbilang: "", tanggal_terbilang: "", tanggal: "", bulan: "", bulan_terbilang: "" };
+  const monthNumber = String(parsed.getMonth() + 1);
+  const monthNames = [
+    "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+    "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+  ];
+  return {
+    hari_terbilang: parsed.toLocaleDateString("id-ID", { weekday: "long" }),
+    tanggal_terbilang: numberToIndonesianWords(parsed.getDate()),
+    tanggal: String(parsed.getDate()),
+    bulan: monthNumber,
+    bulan_terbilang: monthNames[parsed.getMonth()] || "",
+  };
+}
+
+function getBappIdentityKey(row, role = "PML") {
+  const email = cleanText(row?.email || "");
+  if (email) return `EMAIL::${upperText(email)}`;
+  const name = cleanText(row?.nama || "");
+  const jabatan = cleanText(row?.jabatan_raw || row?.jabatan || role || "");
+  return `NAME::${upperText(name)}::${upperText(jabatan)}`;
+}
+
+function dedupeBappRows(rows = []) {
+  const seen = new Set();
+  return (rows || []).filter((row) => {
+    const key = getBappIdentityKey(row);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function normalizeLampiranRow(row) {
@@ -276,11 +404,76 @@ function normalizeGoogleSheetUrl(url) {
     const parsed = new URL(url.trim());
     const sheetIdMatch = parsed.pathname.match(/\/d\/([a-zA-Z0-9-_]+)/);
     if (!sheetIdMatch) return null;
-
-    // Penting: gunakan export XLSX, bukan CSV.
-    // CSV hanya mengambil satu tab berdasarkan gid, sedangkan fitur Lampiran perlu membaca seluruh workbook.
-    return `https://docs.google.com/spreadsheets/d/${sheetIdMatch[1]}/export?format=xlsx`;
+    return {
+      spreadsheetId: sheetIdMatch[1],
+      exportUrl: `https://docs.google.com/spreadsheets/d/${sheetIdMatch[1]}/export?format=xlsx`,
+    };
   } catch { return null; }
+}
+
+function buildGoogleSheetsApiMetadataUrl(spreadsheetId, apiKey) {
+  return `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?key=${encodeURIComponent(apiKey)}`;
+}
+
+function buildGoogleSheetsApiValuesUrl(spreadsheetId, apiKey, sheetName) {
+  return `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}?key=${encodeURIComponent(apiKey)}`;
+}
+
+function parseGoogleSheetApiRows(values = []) {
+  const headers = (values[0] || []).map((value) => String(value ?? "").trim());
+  return values.slice(1).map((row) => {
+    const record = {};
+    headers.forEach((header, index) => {
+      record[header] = String(row?.[index] ?? "");
+    });
+    return record;
+  });
+}
+
+function findAdministrasiSheetFromRows(sheetRows = []) {
+  for (const sheet of sheetRows) {
+    const rows = Array.isArray(sheet.rows) ? sheet.rows : [];
+    if (rows.length === 0) continue;
+    const headers = Object.keys(rows[0]).map((h) => String(h ?? "").trim());
+    if (isAdministrasiSheet(headers)) {
+      return { sheet, data: rows, headers, sheetName: sheet.sheetName };
+    }
+  }
+  return null;
+}
+
+function findLampiranSheetFromRows(sheetRows = []) {
+  for (const sheet of sheetRows) {
+    const rows = Array.isArray(sheet.rows) ? sheet.rows : [];
+    if (rows.length === 0) continue;
+    const headers = Object.keys(rows[0]).map((h) => String(h ?? "").trim());
+    const normalizedHeaders = headers.map((h) => String(h ?? "").trim().toLowerCase());
+    const hasPml = normalizedHeaders.some((h) => ["nama pml", "nama_pml", "pengawas", "pml"].includes(h));
+    const hasPpl = normalizedHeaders.some((h) => ["nama ppl", "nama_ppl", "pencacah", "ppl"].includes(h));
+    const hasKecamatan = normalizedHeaders.some((h) => ["kecamatan", "kecamatan/distrik", "kecamatan / distrik", "nmkec"].includes(h));
+    const hasSls = normalizedHeaders.some((h) => ["sls", "nmsls"].includes(h));
+    if (hasPml && hasPpl && hasKecamatan && hasSls) {
+      return { sheet, data: rows, headers, sheetName: sheet.sheetName };
+    }
+  }
+  return null;
+}
+
+function findBappSheetFromRows(sheetRows = []) {
+  for (const sheet of sheetRows) {
+    const rows = Array.isArray(sheet.rows) ? sheet.rows : [];
+    if (rows.length === 0) continue;
+    const headers = Object.keys(rows[0]).map((h) => String(h ?? "").trim());
+    const normalizedHeaders = headers.map((h) => String(h ?? "").trim().toLowerCase());
+    const hasName = normalizedHeaders.some((h) => ["nama", "nama lengkap", "nama_lengkap", "nama petugas", "nama_petugas"].includes(h));
+    const hasEmail = normalizedHeaders.some((h) => ["email", "email petugas", "email peserta", "mail"].includes(h));
+    const hasJabatan = normalizedHeaders.some((h) => ["jabatan", "posisi", "jenis petugas", "role", "kategori"].includes(h));
+    const hasNomorSpk = normalizedHeaders.some((h) => ["nomor spk", "nomor_spk", "nomor kontrak", "nomor_kontrak", "spk"].includes(h));
+    if (hasName && hasEmail && hasJabatan && hasNomorSpk) {
+      return { sheet, data: rows, headers, sheetName: sheet.sheetName };
+    }
+  }
+  return null;
 }
 
 function normalizeHeaderKeys(headers) {
@@ -313,30 +506,80 @@ function findAdministrasiSheet(workbook) {
   return null;
 }
 
-async function loadGoogleSheet(xlsxUrl) {
-  const response = await fetch(xlsxUrl);
+async function loadGoogleSheet(source, apiKey = "") {
+  if (source?.spreadsheetId && apiKey) {
+    const metadataResponse = await fetch(buildGoogleSheetsApiMetadataUrl(source.spreadsheetId, apiKey));
+    if (!metadataResponse.ok) throw new Error(`Google Sheets API error: ${metadataResponse.status}`);
+
+    const metadata = await metadataResponse.json();
+    const sheets = Array.isArray(metadata.sheets) ? metadata.sheets : [];
+    const sheetRows = [];
+
+    for (const sheet of sheets) {
+      const sheetName = sheet?.properties?.title;
+      if (!sheetName) continue;
+      const valuesResponse = await fetch(buildGoogleSheetsApiValuesUrl(source.spreadsheetId, apiKey, sheetName));
+      if (!valuesResponse.ok) continue;
+      const valuesData = await valuesResponse.json();
+      const rows = parseGoogleSheetApiRows(valuesData.values || []);
+      sheetRows.push({ sheetName, rows });
+    }
+
+    const adminSheetInfo = findAdministrasiSheetFromRows(sheetRows);
+    let data = [];
+    let rawHeaders = [];
+
+    if (adminSheetInfo) {
+      const { data: raw, headers: foundHeaders, sheetName: foundSheetName } = adminSheetInfo;
+      console.log(`✓ Sheet data administrasi ditemukan via API: "${foundSheetName}"`);
+      data = raw.map(normalizeRowHeaders).filter((r) => r.nama !== "" || r.nik !== "" || r.sobatId !== "");
+      rawHeaders = foundHeaders;
+    } else {
+      const availableSheets = sheetRows.map((sheet) => sheet.sheetName).join(", ");
+      console.warn(`Sheet data administrasi tidak ditemukan via API. Sheet tersedia: ${availableSheets}`);
+    }
+
+    const lampiranSheetInfo = findLampiranSheetFromRows(sheetRows);
+    const lampiran = lampiranSheetInfo ? lampiranSheetInfo.data.map(normalizeLampiranRow) : [];
+
+    const bappSheetInfo = findBappSheetFromRows(sheetRows);
+    const bappData = bappSheetInfo ? bappSheetInfo.data.map(normalizeBappRow) : [];
+
+    console.log("Data petugas parsed rows (API):", data);
+    console.log("Lampiran state candidate rows (API):", lampiran);
+    console.log("BAPP parsed rows (API):", bappData);
+
+    return { data, lampiran, bappData, rawHeaders };
+  }
+
+  const response = await fetch(source?.exportUrl || source);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
   const arrayBuffer = await response.arrayBuffer();
   const workbook = XLSX.read(arrayBuffer, { type: "array" });
 
-  // Cari sheet yang berisi data administrasi secara otomatis
   const adminSheetInfo = findAdministrasiSheet(workbook);
-  if (!adminSheetInfo) {
+  let data = [];
+  let rawHeaders = [];
+
+  if (adminSheetInfo) {
+    const { data: raw, headers: foundHeaders, sheetName: foundSheetName } = adminSheetInfo;
+    console.log(`✓ Sheet data administrasi ditemukan: "${foundSheetName}"`);
+    data = raw.map(normalizeRowHeaders).filter((r) => r.nama !== "" || r.nik !== "" || r.sobatId !== "");
+    rawHeaders = foundHeaders;
+  } else {
     const availableSheets = workbook.SheetNames.map((name, idx) => `[${idx}] ${name}`).join(", ");
-    throw new Error(`Sheet data administrasi tidak ditemukan. Sheet tersedia: ${availableSheets}`);
+    console.warn(`Sheet data administrasi tidak ditemukan. Lanjutkan hanya dengan data lampiran. Sheet tersedia: ${availableSheets}`);
   }
 
-  const { data: raw, headers: rawHeaders, sheetName: foundSheetName } = adminSheetInfo;
-  console.log(`✓ Sheet data administrasi ditemukan: "${foundSheetName}"`);
-  
-  const data = raw.map(normalizeRowHeaders).filter((r) => r.nama !== "" || r.nik !== "" || r.sobatId !== "");
   const lampiran = parseLampiranXlsxData(arrayBuffer);
+  const bappData = parseBappData(arrayBuffer);
 
   console.log("Data petugas parsed rows:", data);
   console.log("Lampiran state candidate rows:", lampiran);
+  console.log("BAPP parsed rows:", bappData);
 
-  return { data, lampiran, rawHeaders };
+  return { data, lampiran, bappData, rawHeaders };
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -468,10 +711,159 @@ const SPJ_TEMPLATE_URL                        = "/templates/5. SPJ Pelatihan_SE2
 const SPD_TEMPLATE_URL                        = "/templates/6. SPD.docx";
 const SPD_LAMPIRAN_TEMPLATE_URL               = "/templates/6. Lampiran SPD.docx";
 const SURAT_TUGAS_TEMPLATE_URL                = "/templates/6. Surat Tugas.docx";
+const BAPP_PML_TEMPLATE_URL                   = "/templates/BAPP PML.docx";
+const BAPP_PPL_TEMPLATE_URL                   = "/templates/BAPP PPL.docx";
+const SURAT_PERNYATAAN_PENYELESAIAN_LAPANGAN_TEMPLATE_URL = "/templates/Dasar Pembayaran.docx";
 const LAMPIRAN_PML_TEMPLATE_URL              = "/templates/LAMPIRAN PML.docx";
 const LAMPIRAN_PPL_TEMPLATE_URL              = "/templates/LAMPIRAN PPL.docx";
 
 // ─── TEMPLATE DATA BUILDERS ───────────────────────────────────────────────────
+
+function buildBappTemplateData(formValues, row = {}, role = "PML") {
+  const tanggalSurat = cleanText(formValues?.tanggal_surat || "");
+  const nama = cleanText(row?.nama || row?.nama_pml || row?.nama_ppl || "");
+  const jabatan = cleanText(row?.jabatan_raw || row?.jabatan || "");
+  const wilayah = cleanText(row?.wilayah || row?.tempat || row?.asal || "");
+  const dateParts = getBappDateParts(tanggalSurat);
+  const nomorKontrak = cleanText(row?.nomor_spk || row?.nomor_kontrak || formValues?.nomor_kontrak || "");
+  return {
+    tanggal_surat: tanggalSurat,
+    tanggal_surat_fmt: formatTanggalIndonesia(tanggalSurat),
+    tanggal_surat_lengkap: formatTanggalLengkapIndonesia(tanggalSurat),
+    hari_terbilang: dateParts.hari_terbilang,
+    hari: dateParts.hari_terbilang,
+    tanggal_terbilang: dateParts.tanggal_terbilang,
+    tanggal: dateParts.tanggal,
+    bulan: dateParts.bulan,
+    bulan_terbilang: dateParts.bulan_terbilang,
+    nama,
+    nama_peserta: nama,
+    nama_petugas: nama,
+    jabatan,
+    jabatan_peserta: jabatan,
+    jabatan_petugas: jabatan,
+    role,
+    jenis: role,
+    jenis_dokumen: "BAPP",
+    wilayah,
+    wilayah_tugas: wilayah,
+    tempat: cleanText(formValues?.tempat || ""),
+    email: cleanText(row?.email || ""),
+    kelas: cleanText(row?.kelas || ""),
+    gelombang: cleanText(row?.gelombang || ""),
+    nomor_surat: cleanText(formValues?.nomor_surat || ""),
+    nomor_dokumen: cleanText(formValues?.nomor_surat || ""),
+    nomor_prefix: extractNomorPrefix(nomorKontrak),
+    nomor_kontrak: nomorKontrak,
+    nik: cleanText(row?.nik || ""),
+    sls_40: cleanText(row?.sls_40 || ""),
+  };
+}
+
+async function createBappBlob(templateUrl, formValues, row, role) {
+  const response = await fetch(templateUrl);
+  if (!response.ok) throw new Error(`Gagal memuat template BAPP: ${response.status} ${response.statusText}`);
+  const arrayBuffer = await response.arrayBuffer();
+  const zip = new PizZip(arrayBuffer);
+  const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+  doc.render(buildBappTemplateData(formValues || {}, row || {}, role));
+  return doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+}
+
+async function generateSingleBapp(templateUrl, formValues, row, role) {
+  const blob = await createBappBlob(templateUrl, formValues || {}, row || {}, role);
+  const safeName = sanitizeFileName(cleanText(row?.nama || `${role}-bapp`));
+  saveAs(blob, `BAPP ${role} - ${safeName}.docx`);
+}
+
+const BAPP_ZIP_BATCH_SIZE = 150;
+
+async function generateBapp(templateUrl, formValues, rows, role, onProgress) {
+  if (!rows || rows.length === 0) throw new Error("Tidak ada data BAPP untuk role yang dipilih.");
+  const uniqueRows = dedupeBappRows(rows);
+  const totalBatches = Math.ceil(uniqueRows.length / BAPP_ZIP_BATCH_SIZE);
+
+  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+    const batchRows = uniqueRows.slice(
+      batchIndex * BAPP_ZIP_BATCH_SIZE,
+      (batchIndex + 1) * BAPP_ZIP_BATCH_SIZE
+    );
+
+    const files = [];
+    for (const row of batchRows) {
+      const blob = await createBappBlob(templateUrl, formValues || {}, row || {}, role);
+      files.push({
+        name: `BAPP ${role} - ${sanitizeFileName(cleanText(row?.nama || "Tanpa Nama"))}.docx`,
+        blob,
+      });
+    }
+
+    if (typeof onProgress === "function") {
+      onProgress({
+        batchIndex: batchIndex + 1,
+        totalBatches,
+        totalRows: uniqueRows.length,
+      });
+    }
+
+    if (files.length === 1 && totalBatches === 1) {
+      saveAs(files[0].blob, files[0].name);
+      continue;
+    }
+
+    const batchSuffix = totalBatches > 1 ? ` - Bagian ${batchIndex + 1} dari ${totalBatches}` : "";
+    await downloadMultipleAsZip(files, `BAPP ${role} ${cleanText(formValues?.tanggal_surat || "SE2026")}${batchSuffix}.zip`);
+  }
+}
+
+async function createSuratPernyataanPenyelesaianLapanganBlob(templateUrl, formValues, row) {
+  const response = await fetch(templateUrl);
+  if (!response.ok) throw new Error(`Gagal memuat template surat: ${response.status} ${response.statusText}`);
+  const arrayBuffer = await response.arrayBuffer();
+  const zip = new PizZip(arrayBuffer);
+  const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+  doc.render({
+    nomor_prefix: cleanText(row?.nomor_prefix || extractNomorPrefix(row?.nomor_spk || row?.nomor_kontrak || "")),
+    nama_petugas: cleanText(row?.nama || row?.nama_pml || row?.nama_ppl || ""),
+    nik: cleanText(row?.nik || ""),
+    nomor_kontrak: cleanText(row?.nomor_spk || row?.nomor_kontrak || ""),
+  });
+  return doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+}
+
+async function generateSingleSuratPernyataanPenyelesaianLapangan(templateUrl, row, onProgress) {
+  const blob = await createSuratPernyataanPenyelesaianLapanganBlob(templateUrl, {}, row);
+  const safeName = sanitizeFileName(cleanText(row?.nama || "Tanpa Nama"));
+  if (typeof onProgress === "function") {
+    onProgress({ batchIndex: 1, totalBatches: 1, totalRows: 1 });
+  }
+  saveAs(blob, `Surat Pernyataan Penyelesaian Lapangan - ${safeName}.docx`);
+}
+
+async function generateSuratPernyataanPenyelesaianLapangan(templateUrl, rows, onProgress) {
+  if (!rows || rows.length === 0) throw new Error("Tidak ada data untuk Surat Pernyataan Penyelesaian Lapangan.");
+  const uniqueRows = dedupeBappRows(rows);
+  const totalBatches = Math.ceil(uniqueRows.length / BAPP_ZIP_BATCH_SIZE);
+
+  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+    const batchRows = uniqueRows.slice(batchIndex * BAPP_ZIP_BATCH_SIZE, (batchIndex + 1) * BAPP_ZIP_BATCH_SIZE);
+    const files = [];
+    for (const row of batchRows) {
+      const blob = await createSuratPernyataanPenyelesaianLapanganBlob(templateUrl, {}, row);
+      files.push({
+        name: `Surat Pernyataan Penyelesaian Lapangan - ${sanitizeFileName(cleanText(row?.nama || "Tanpa Nama"))}.docx`,
+        blob,
+      });
+    }
+
+    if (typeof onProgress === "function") {
+      onProgress({ batchIndex: batchIndex + 1, totalBatches, totalRows: uniqueRows.length });
+    }
+
+    const batchSuffix = totalBatches > 1 ? ` - Bagian ${batchIndex + 1} dari ${totalBatches}` : "";
+    await downloadMultipleAsZip(files, `Surat Pernyataan Penyelesaian Lapangan${batchSuffix}.zip`);
+  }
+}
 
 // DAFTAR HADIR
 const DAFTAR_HADIR_KEPALA_BPS = {
@@ -1263,9 +1655,11 @@ export default function PortalAdministrasiSE2026() {
 
   const [petugasData,        setPetugasData]        = useState([]);
   const [lampiranData,       setLampiranData]       = useState([]);
+  const [bappData,           setBappData]           = useState([]);
   const [xlsxLoaded,         setXlsxLoaded]         = useState(false);
   const [xlsxFileName,       setXlsxFileName]       = useState("data-petugas.xlsx");
   const [googleSheetUrl,     setGoogleSheetUrl]     = useState("https://docs.google.com/spreadsheets/d/10jA_NOMNn5pBuy1OPrSdHstscRrUOUlEDElk-jOmXLQ/edit?gid=1095810027#gid=1095810027");
+  const [googleSheetApiKey,  setGoogleSheetApiKey]  = useState("");
   const [googleSheetError,   setGoogleSheetError]   = useState(null);
   const [googleSheetLoading, setGoogleSheetLoading] = useState(false);
 
@@ -1279,17 +1673,17 @@ export default function PortalAdministrasiSE2026() {
     setGoogleSheetError(null);
     setGoogleSheetLoading(true);
     try {
-      const { data, lampiran, rawHeaders } = await loadGoogleSheet(normalized);
-      if (!isAdministrasiSheet(rawHeaders)) {
-        setGoogleSheetError(`Kolom tidak sesuai. Kolom yang ditemukan: ${rawHeaders.slice(0, 8).join(", ")}...`);
+      const { data, lampiran, bappData: loadedBappData } = await loadGoogleSheet(normalized, googleSheetApiKey);
+      if (data.length === 0 && (!lampiran || lampiran.length === 0) && (!loadedBappData || loadedBappData.length === 0)) {
+        setGoogleSheetError("Tidak ada data petugas, lampiran, maupun BAPP yang terbaca.");
         return;
       }
-      if (data.length === 0) { setGoogleSheetError("Sheet data utama tidak berisi data."); return; }
 
-      setPetugasData(data);
+      setPetugasData(data || []);
       setLampiranData(lampiran || []);
+      setBappData(loadedBappData || []);
       setXlsxLoaded(true);
-      setXlsxFileName(`${data.length} petugas, ${lampiran?.length || 0} lampiran`);
+      setXlsxFileName(`${data.length} petugas, ${lampiran?.length || 0} lampiran, ${loadedBappData?.length || 0} BAPP`);
     } catch (err) {
       setGoogleSheetError(`Gagal memuat Google Sheet: ${err.message}`);
     } finally {
@@ -1305,9 +1699,11 @@ export default function PortalAdministrasiSE2026() {
         const buffer = await response.arrayBuffer();
         const data = parseXlsxData(buffer);
         const lampiran = parseLampiranXlsxData(buffer);
-        setPetugasData(data);
-        setLampiranData(lampiran);
-        setXlsxLoaded(true);
+        const bappRows = parseBappData(buffer);
+        setPetugasData(data || []);
+        setLampiranData(lampiran || []);
+        setBappData(bappRows || []);
+        setXlsxLoaded(Boolean(lampiran?.length || data?.length || bappRows?.length));
       } catch (err) {
         console.warn("Tidak dapat memuat data-petugas.xlsx:", err.message);
       }
@@ -1315,7 +1711,16 @@ export default function PortalAdministrasiSE2026() {
     googleSheetUrl ? loadGoogleSheetData() : loadLocal();
   }, []);
 
-  const openForm = (docType) => { setSelectedDoc(docType); setFormData({}); setPreviewData(null); setView("form"); };
+  const openForm = (docType) => {
+    if (docType?.disabled) {
+      alert(docType.lockedMessage || "Fitur ini dikunci. Saat ini hanya Lampiran yang aktif.");
+      return;
+    }
+    setSelectedDoc(docType);
+    setFormData({});
+    setPreviewData(null);
+    setView("form");
+  };
   const handleBack = () => {
     if (view === "preview") { setView("form"); setPreviewData(null); }
     else { setView("dashboard"); setSelectedDoc(null); }
@@ -1328,7 +1733,12 @@ export default function PortalAdministrasiSE2026() {
         const buffer = e.target.result;
         const data = parseXlsxData(buffer);
         const lampiran = parseLampiranXlsxData(buffer);
-        setPetugasData(data); setLampiranData(lampiran); setXlsxLoaded(true); setXlsxFileName(file.name);
+        const bappRows = parseBappData(buffer);
+        setPetugasData(data || []);
+        setLampiranData(lampiran || []);
+        setBappData(bappRows || []);
+        setXlsxLoaded(Boolean(lampiran?.length || data?.length || bappRows?.length));
+        setXlsxFileName(file.name);
       } catch (err) { alert("Gagal membaca file xlsx: " + err.message); }
     };
     reader.readAsArrayBuffer(file);
@@ -1358,22 +1768,12 @@ export default function PortalAdministrasiSE2026() {
               </div>
             </div>
           </div>
-          <nav className="hidden items-center gap-1 rounded-full border border-orange-100 bg-white/80 p-1 shadow-sm lg:flex">
-            <button onClick={() => { setView("dashboard"); setSelectedDoc(null); }}
-              className={`rounded-full px-4 py-2 text-sm font-bold transition ${view === "dashboard" ? "bg-orange-500 text-white shadow" : "text-slate-600 hover:bg-orange-50 hover:text-orange-600"}`}>
-              Dashboard
-            </button>
-            {DOC_TYPES.map((d) => (
-              <button key={d.id} onClick={() => openForm(d)}
-                className={`rounded-full px-3 py-2 text-xs font-bold transition ${selectedDoc?.id === d.id ? "bg-orange-500 text-white shadow" : "text-slate-600 hover:bg-orange-50 hover:text-orange-600"}`}>
-                {d.label}
-              </button>
-            ))}
-          </nav>
           {xlsxLoaded && (
             <div className="hidden items-center gap-2 rounded-full border border-green-200 bg-green-50 px-3 py-1.5 lg:flex">
               <CheckCircle size={14} className="text-green-600" />
-              <span className="text-xs font-bold text-green-700">{xlsxFileName}</span>
+              <span className="text-xs font-bold text-green-700">
+                Peserta {petugasData.length || 0} • SLS {lampiranData.length || 0} • Petugas {bappData.length || 0}
+              </span>
             </div>
           )}
         </div>
@@ -1397,9 +1797,10 @@ export default function PortalAdministrasiSE2026() {
                   <LayoutDashboard size={18} /> Dashboard
                 </button>
                 {DOC_TYPES.map((d) => (
-                  <button key={d.id} onClick={() => { openForm(d); setSidebarOpen(false); }}
-                    className={`mb-2 flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition ${selectedDoc?.id === d.id ? "bg-orange-500 text-white" : "text-slate-700 hover:bg-orange-50"}`}>
+                  <button key={d.id} onClick={() => { if (d.disabled) { alert(d.lockedMessage || "Fitur ini dikunci."); return; } openForm(d); setSidebarOpen(false); }}
+                    className={`mb-2 flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition ${selectedDoc?.id === d.id ? "bg-orange-500 text-white" : "text-slate-700 hover:bg-orange-50"} ${d.disabled ? "cursor-not-allowed opacity-70" : ""}`}>
                     {React.cloneElement(d.icon, { size: 18 })} {d.label}
+                    {d.disabled && <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-700">Kunci</span>}
                   </button>
                 ))}
               </div>
@@ -1424,7 +1825,7 @@ export default function PortalAdministrasiSE2026() {
                 {!xlsxLoaded && (
                   <>
                     <XlsxUploadCard loaded={xlsxLoaded} fileName={xlsxFileName} petugasCount={petugasData.length} onUpload={handleXlsxUpload} />
-                    <GoogleSheetCard url={googleSheetUrl} onUrlChange={setGoogleSheetUrl} onLoad={loadGoogleSheetData} loading={googleSheetLoading} error={googleSheetError} />
+                    <GoogleSheetCard url={googleSheetUrl} apiKey={googleSheetApiKey} onUrlChange={setGoogleSheetUrl} onApiKeyChange={setGoogleSheetApiKey} onLoad={loadGoogleSheetData} loading={googleSheetLoading} error={googleSheetError} />
                   </>
                 )}
                 {xlsxLoaded && (
@@ -1434,15 +1835,15 @@ export default function PortalAdministrasiSE2026() {
                       <CheckCircle size={22} className="text-white" />
                     </div>
                     <div>
-                      <p className="font-black text-blue-900">✓ Data Petugas Sudah Terbaca</p>
-                      <p className="text-sm font-semibold text-blue-600">{petugasData.length} petugas siap digunakan</p>
+                      <p className="font-black text-blue-900">Data Siap Digunakan</p>
+                      <p className="text-sm font-semibold text-blue-600">Peserta {petugasData.length || 0} • SLS {lampiranData.length || 0} • Petugas {bappData.length || 0}</p>
                     </div>
                   </motion.div>
                 )}
                 <div className="mb-10 grid grid-cols-3 gap-4">
-                  <StatCard value="7" label="Jenis Dokumen" />
+                  <StatCard value="3" label="Jenis Dokumen Aktif" />
                   <StatCard value="SE2026" label="Kegiatan" />
-                  <StatCard value={petugasData.length || "—"} label="Data Petugas" highlight={petugasData.length > 0} />
+                  <StatCard value={bappData.length || "—"} label="Petugas Aktif" highlight={bappData.length > 0} />
                 </div>
                 <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   {DOC_TYPES.map((doc, i) => <DocCard key={doc.id} doc={doc} index={i} onSelect={() => openForm(doc)} />)}
@@ -1466,7 +1867,7 @@ export default function PortalAdministrasiSE2026() {
                     <h2 className="text-3xl font-black tracking-tight text-slate-950">{selectedDoc.label}</h2>
                   </div>
                 </div>
-                <DocForm docType={selectedDoc} formData={formData} setFormData={setFormData} onPreview={(data) => { setPreviewData(data); setView("preview"); }} petugasData={petugasData} lampiranData={lampiranData} xlsxLoaded={xlsxLoaded} />
+                <DocForm docType={selectedDoc} formData={formData} setFormData={setFormData} onPreview={(data) => { setPreviewData(data); setView("preview"); }} petugasData={petugasData} lampiranData={lampiranData} bappData={bappData} xlsxLoaded={xlsxLoaded} />
               </div>
             </motion.div>
           )}
@@ -1482,13 +1883,6 @@ export default function PortalAdministrasiSE2026() {
                     <button onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-2xl border border-orange-200 bg-white px-5 py-2.5 text-sm font-black text-orange-600 shadow-sm transition hover:-translate-y-0.5 hover:bg-orange-50">
                       <Printer size={16} /> Cetak
                     </button>
-                    {selectedDoc?.id === "daftar-hadir" && <GenerateDocxButton onGenerate={() => generateDaftarHadir(DAFTAR_HADIR_TEMPLATE_URL, previewData.formValues, previewData.peserta, previewData.namaInda, previewData.selectedFilterGroup)} />}
-                    {selectedDoc?.id === "tanda-terima" && <GenerateDocxButton onGenerate={() => generateTandaTerimaSmart(previewData.formValues, previewData.peserta, previewData.tandaTerimaType)} />}
-                    {selectedDoc?.id === "surat-pernyataan-kendaraan" && <GenerateDocxButton onGenerate={() => generateSuratPernyataanKendaraan(SURAT_PERNYATAAN_KENDARAAN_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
-                    {selectedDoc?.id === "pengeluaran-riil" && <GenerateDocxButton onGenerate={() => generatePengeluaranRiil(PENGELUARAN_RIIL_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
-                    {selectedDoc?.id === "spj" && <GenerateDocxButton onGenerate={() => generateSpj(SPJ_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
-                    {selectedDoc?.id === "spd" && <GenerateDocxButton onGenerate={() => generateSpd(SPD_TEMPLATE_URL, SPD_LAMPIRAN_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
-                    {selectedDoc?.id === "surat-tugas" && <GenerateDocxButton onGenerate={() => generateSuratTugas(SURAT_TUGAS_TEMPLATE_URL, previewData.formValues, previewData.peserta)} />}
                     {selectedDoc?.id === "lampiran" && (
                       <div className="flex items-center gap-3">
                         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
@@ -1609,7 +2003,7 @@ function XlsxUploadCard({ loaded, fileName, petugasCount, onUpload }) {
   );
 }
 
-function GoogleSheetCard({ url, onUrlChange, onLoad, loading, error }) {
+function GoogleSheetCard({ url, apiKey, onUrlChange, onApiKeyChange, onLoad, loading, error }) {
   return (
     <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="mb-8 rounded-3xl border border-orange-200 bg-white p-6 shadow-sm">
       <div className="flex items-center gap-4">
@@ -1627,8 +2021,12 @@ function GoogleSheetCard({ url, onUrlChange, onLoad, loading, error }) {
           {loading ? "Memuat..." : "Muat"}
         </button>
       </div>
+      <div className="mt-3">
+        <input value={apiKey || ""} onChange={(e) => onApiKeyChange(e.target.value)} placeholder="API Key Google Sheets (opsional)"
+          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-orange-300 focus:bg-white" />
+      </div>
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-      <p className="mt-3 text-xs text-slate-400">Catatan: Link akan dikonversi ke format CSV otomatis.</p>
+      <p className="mt-3 text-xs text-slate-400">Jika API key diisi, data dibaca langsung dari Google Sheets API. Jika tidak, aplikasi memakai fallback export XLSX.</p>
     </motion.div>
   );
 }
@@ -1668,7 +2066,9 @@ function StatCard({ value, label, highlight }) {
 function DocCard({ doc, index, onSelect }) {
   return (
     <motion.button initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: index * 0.07 }}
-      onClick={onSelect} className="group relative overflow-hidden rounded-[2rem] border border-orange-100 bg-white/85 p-6 text-left shadow-lg shadow-orange-900/5 backdrop-blur transition hover:-translate-y-2 hover:shadow-2xl hover:shadow-orange-500/15">
+      onClick={doc.disabled ? undefined : onSelect}
+      disabled={doc.disabled}
+      className={`group relative overflow-hidden rounded-[2rem] border border-orange-100 bg-white/85 p-6 text-left shadow-lg shadow-orange-900/5 backdrop-blur transition ${doc.disabled ? "cursor-not-allowed opacity-70" : "hover:-translate-y-2 hover:shadow-2xl hover:shadow-orange-500/15"}`}>
       <div className="absolute right-0 top-0 h-24 w-24 rounded-bl-[4rem] bg-orange-50 transition group-hover:bg-orange-100" />
       <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-xl shadow-orange-500/25">
         {React.cloneElement(doc.icon, { size: 26 })}
@@ -1676,7 +2076,7 @@ function DocCard({ doc, index, onSelect }) {
       <h3 className="relative mt-5 text-lg font-black tracking-tight text-slate-950">{doc.label}</h3>
       <p className="relative mt-2 text-sm leading-6 text-slate-500">{doc.desc}</p>
       <div className="relative mt-5 flex items-center gap-1 text-sm font-black text-orange-500">
-        Buat Dokumen <ChevronRight size={16} className="transition group-hover:translate-x-1" />
+        {doc.disabled ? "Terkunci" : "Buat Dokumen"} <ChevronRight size={16} className={`transition ${doc.disabled ? "" : "group-hover:translate-x-1"}`} />
       </div>
     </motion.button>
   );
@@ -1937,7 +2337,7 @@ function FilterPesertaHotelGelombangPanel({ xlsxLoaded, formData, setFormData, p
 
 // ─── DOC FORM ─────────────────────────────────────────────────────────────────
 
-function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampiranData = [], xlsxLoaded }) {
+function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampiranData = [], bappData = [], xlsxLoaded }) {
   const update = (key, val) => setFormData((p) => ({ ...p, [key]: val }));
 
   const [daftarHadirPeserta,     setDaftarHadirPeserta]     = useState([]);
@@ -1963,6 +2363,13 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
   const [pengeluaranPeserta,      setPengeluaranPeserta]      = useState([]);
   const [pengeluaranFiltered,     setPengeluaranFiltered]     = useState(false);
   const [pengeluaranFilterGroup,  setPengeluaranFilterGroup]  = useState("");
+  const [bappRole,                setBappRole]                = useState("");
+  const [bappManualSelect,        setBappManualSelect]        = useState("");
+  const [bappGenerating,          setBappGenerating]          = useState(false);
+  const [bappProgressText,        setBappProgressText]        = useState("");
+  const [suratPenyelesaianLapanganSelect, setSuratPenyelesaianLapanganSelect] = useState("");
+  const [suratPenyelesaianLapanganGenerating, setSuratPenyelesaianLapanganGenerating] = useState(false);
+  const [suratPenyelesaianLapanganProgressText, setSuratPenyelesaianLapanganProgressText] = useState("");
 
   // Lampiran form controls: combined manual select for PML + PPL
   const [lampiranManualSelect, setLampiranManualSelect] = useState("");
@@ -2128,6 +2535,11 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
         formValues: {},
         lampiranRows: lampiranData || [],
       });
+      return;
+    }
+
+    if (docType.id === "bapp") {
+      e.preventDefault();
       return;
     }
 
@@ -2649,6 +3061,213 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
           </>
         );
 
+      // ── BAPP ────────────────────────────────────────────────────────────────
+      case "bapp": {
+        const filteredBappRows = React.useMemo(() => {
+          const rows = Array.isArray(bappData) ? bappData : [];
+          return rows.filter((row) => isBappRowForRole(row, bappRole));
+        }, [bappData, bappRole]);
+
+        const bappOptions = React.useMemo(() => {
+          const seen = new Set();
+          return filteredBappRows
+            .map((row) => {
+              const identity = getBappIdentityKey(row, bappRole);
+              if (seen.has(identity)) return null;
+              seen.add(identity);
+              return {
+                value: identity,
+                label: `${cleanText(row.nama) || "Tanpa Nama"} — ${cleanText(row.jabatan_raw || row.jabatan || bappRole)}`,
+                row,
+              };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.label.localeCompare(b.label, "id-ID", { sensitivity: "base" }));
+        }, [filteredBappRows, bappRole]);
+
+        return (
+          <div className="space-y-5">
+            <div className="rounded-3xl border border-orange-100 bg-orange-50/70 p-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-700">BAPP PML/PPL</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                Sumber data berasal dari sheet Pembayaran pada link spreadsheet yang sama. Pilih role, tentukan tanggal surat, lalu unduh dokumen manual atau semua.
+              </p>
+              <p className="mt-3 text-xs font-bold text-slate-500">
+                Data terbaca: {bappData.length} baris dari sheet Pembayaran
+              </p>
+            </div>
+
+            <div>
+              <p className={labelCls}>Pilih Role</p>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => { setBappRole("PML"); setBappManualSelect(""); }} className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-black transition ${bappRole === "PML" ? "bg-orange-600 text-white" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>PML</button>
+                <button type="button" onClick={() => { setBappRole("PPL"); setBappManualSelect(""); }} className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-black transition ${bappRole === "PPL" ? "bg-orange-600 text-white" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>PPL</button>
+              </div>
+            </div>
+
+            {bappRole && (
+              <>
+                <div>
+                  <label className={labelCls}>Tanggal Surat</label>
+                  <input
+                    type="date"
+                    min="2026-07-15"
+                    max="2026-07-31"
+                    className={inputCls}
+                    value={formData.tanggal_surat || ""}
+                    onChange={(e) => update("tanggal_surat", e.target.value)}
+                  />
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Rentang tanggal yang diizinkan: 15 Juli 2026 sampai 31 Juli 2026.</p>
+                </div>
+
+                <div>
+                  <label className={labelCls}>Unduh Manual</label>
+                  <select value={bappManualSelect} onChange={(e) => setBappManualSelect(e.target.value)} className={inputCls}>
+                    <option value="">— Pilih Nama {bappRole} —</option>
+                    {bappOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Daftar nama diurutkan berdasarkan abjad.</p>
+                </div>
+
+                {bappGenerating && (
+                  <div className="flex items-center gap-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700">
+                    <LoaderCircle size={18} className="animate-spin" />
+                    <span>{bappProgressText || "Sedang menyiapkan file BAPP..."}</span>
+                  </div>
+                )}
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <button type="button" onClick={async () => {
+                    try {
+                      if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
+                      const selectedDate = new Date(formData.tanggal_surat);
+                      const minDate = new Date("2026-07-15T00:00:00");
+                      const maxDate = new Date("2026-07-31T23:59:59");
+                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Juli 2026.");
+                      if (!bappManualSelect) throw new Error("Pilih nama terlebih dahulu.");
+                      const chosenRow = bappOptions.find((option) => option.value === bappManualSelect)?.row;
+                      if (!chosenRow) throw new Error("Data nama yang dipilih tidak ditemukan.");
+                      setBappGenerating(true);
+                      setBappProgressText("Membuat dokumen terpilih...");
+                      await generateSingleBapp(bappRole === "PML" ? BAPP_PML_TEMPLATE_URL : BAPP_PPL_TEMPLATE_URL, formData, chosenRow, bappRole);
+                    } catch (err) { alert(err.message || err); }
+                    finally { setBappGenerating(false); setBappProgressText(""); }
+                  }} disabled={!bappManualSelect || filteredBappRows.length === 0 || bappGenerating} className="inline-flex items-center justify-center rounded-2xl bg-orange-500 px-5 py-3 text-sm font-black text-white shadow transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-orange-200">
+                    Download Terpilih
+                  </button>
+
+                  <button type="button" onClick={async () => {
+                    try {
+                      if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
+                      const selectedDate = new Date(formData.tanggal_surat);
+                      const minDate = new Date("2026-07-15T00:00:00");
+                      const maxDate = new Date("2026-07-31T23:59:59");
+                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Juli 2026.");
+                      setBappGenerating(true);
+                      setBappProgressText("Mempersiapkan batch download...");
+                      await generateBapp(bappRole === "PML" ? BAPP_PML_TEMPLATE_URL : BAPP_PPL_TEMPLATE_URL, formData, filteredBappRows, bappRole, ({ batchIndex, totalBatches }) => {
+                        setBappProgressText(`Membuat batch ${batchIndex} dari ${totalBatches}...`);
+                      });
+                    } catch (err) { alert(err.message || err); }
+                    finally { setBappGenerating(false); setBappProgressText(""); }
+                  }} disabled={filteredBappRows.length === 0 || bappGenerating} className="inline-flex items-center justify-center rounded-2xl border border-orange-200 bg-white px-5 py-3 text-sm font-black text-orange-700 shadow transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60">
+                    Download Semua
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      }
+
+      // ── SURAT PERNYATAAN PENYELESAIAN LAPANGAN ───────────────────────────
+      case "surat-pernyataan-penyelesaian-lapangan": {
+        const filteredSuratPenyelesaianLapanganRows = React.useMemo(() => {
+          const rows = Array.isArray(bappData) ? bappData : [];
+          return rows.filter((row) => isBappRowForRole(row, "PML"));
+        }, [bappData]);
+
+        const suratPenyelesaianLapanganOptions = React.useMemo(() => {
+          const seen = new Set();
+          return filteredSuratPenyelesaianLapanganRows
+            .map((row) => {
+              const identity = getBappIdentityKey(row, "PML");
+              if (seen.has(identity)) return null;
+              seen.add(identity);
+              return {
+                value: identity,
+                label: `${cleanText(row.nama) || "Tanpa Nama"} — ${cleanText(row.jabatan_raw || row.jabatan || "PML")}`,
+                row,
+              };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.label.localeCompare(b.label, "id-ID", { sensitivity: "base" }));
+        }, [filteredSuratPenyelesaianLapanganRows]);
+
+        return (
+          <div className="space-y-5">
+            <div className="rounded-3xl border border-orange-100 bg-orange-50/70 p-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-700">Surat Pernyataan Penyelesaian Lapangan</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                Dokumen khusus PML dari sheet Pembayaran. Pilih nama untuk unduh manual, atau unduh semua dalam batch 150 orang.
+              </p>
+              <p className="mt-3 text-xs font-bold text-slate-500">
+                Data terbaca: {bappData.length} baris dari sheet Pembayaran
+              </p>
+            </div>
+
+            <div>
+              <label className={labelCls}>Unduh Manual</label>
+              <select value={suratPenyelesaianLapanganSelect} onChange={(e) => setSuratPenyelesaianLapanganSelect(e.target.value)} className={inputCls}>
+                <option value="">— Pilih Nama PML —</option>
+                {suratPenyelesaianLapanganOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs font-semibold text-slate-400">Daftar nama diurutkan berdasarkan abjad dan memakai email sebagai kunci unik.</p>
+            </div>
+
+            {suratPenyelesaianLapanganGenerating && (
+              <div className="flex items-center gap-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700">
+                <LoaderCircle size={18} className="animate-spin" />
+                <span>{suratPenyelesaianLapanganProgressText || "Sedang menyiapkan dokumen..."}</span>
+              </div>
+            )}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <button type="button" onClick={async () => {
+                try {
+                  if (!suratPenyelesaianLapanganSelect) throw new Error("Pilih nama terlebih dahulu.");
+                  const chosenRow = suratPenyelesaianLapanganOptions.find((option) => option.value === suratPenyelesaianLapanganSelect)?.row;
+                  if (!chosenRow) throw new Error("Data nama yang dipilih tidak ditemukan.");
+                  setSuratPenyelesaianLapanganGenerating(true);
+                  setSuratPenyelesaianLapanganProgressText("Membuat dokumen terpilih...");
+                  await generateSingleSuratPernyataanPenyelesaianLapangan(SURAT_PERNYATAAN_PENYELESAIAN_LAPANGAN_TEMPLATE_URL, chosenRow);
+                } catch (err) { alert(err.message || err); }
+                finally { setSuratPenyelesaianLapanganGenerating(false); setSuratPenyelesaianLapanganProgressText(""); }
+              }} disabled={!suratPenyelesaianLapanganSelect || filteredSuratPenyelesaianLapanganRows.length === 0 || suratPenyelesaianLapanganGenerating} className="inline-flex items-center justify-center rounded-2xl bg-orange-500 px-5 py-3 text-sm font-black text-white shadow transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-orange-200">
+                Download Terpilih
+              </button>
+
+              <button type="button" onClick={async () => {
+                try {
+                  setSuratPenyelesaianLapanganGenerating(true);
+                  setSuratPenyelesaianLapanganProgressText("Mempersiapkan batch download...");
+                  await generateSuratPernyataanPenyelesaianLapangan(SURAT_PERNYATAAN_PENYELESAIAN_LAPANGAN_TEMPLATE_URL, filteredSuratPenyelesaianLapanganRows, ({ batchIndex, totalBatches }) => {
+                    setSuratPenyelesaianLapanganProgressText(`Membuat batch ${batchIndex} dari ${totalBatches}...`);
+                  });
+                } catch (err) { alert(err.message || err); }
+                finally { setSuratPenyelesaianLapanganGenerating(false); setSuratPenyelesaianLapanganProgressText(""); }
+              }} disabled={filteredSuratPenyelesaianLapanganRows.length === 0 || suratPenyelesaianLapanganGenerating} className="inline-flex items-center justify-center rounded-2xl border border-orange-200 bg-white px-5 py-3 text-sm font-black text-orange-700 shadow transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60">
+                Download Semua
+              </button>
+            </div>
+          </div>
+        );
+      }
+
       // ── LAMPIRAN ────────────────────────────────────────────────────────────
       case "lampiran": {
         const rows = lampiranData || [];
@@ -2785,7 +3404,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
   return (
     <form onSubmit={handleSubmit} className="space-y-5 rounded-[2.5rem] border border-orange-100 bg-white/80 p-6 shadow-xl shadow-orange-900/5 backdrop-blur md:p-10">
       {renderFields()}
-      {docType.id !== "lampiran" && (
+      {docType.id !== "lampiran" && docType.id !== "bapp" && docType.id !== "surat-pernyataan-penyelesaian-lapangan" && (
         <div className="border-t border-orange-100 pt-5">
           <button type="submit" className="group inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-7 py-4 font-black text-white shadow-2xl shadow-orange-500/25 transition hover:-translate-y-1 hover:bg-orange-600">
             Pratinjau Dokumen <ChevronRight className="transition group-hover:translate-x-1" size={18} />
