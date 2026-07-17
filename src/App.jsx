@@ -29,6 +29,7 @@ const DOC_TYPES = [
   { id: "spd",           icon: <MapIcon />,           label: "SPD", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "amber", disabled: true, lockedMessage: "Fitur SPD dikunci. Saat ini hanya Lampiran yang aktif." },
   { id: "surat-tugas",   icon: <Users />,         label: "Surtug", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "orange", disabled: true, lockedMessage: "Fitur Surat Tugas dikunci. Saat ini hanya Lampiran yang aktif." },
   { id: "bapp",          icon: <FileText />,      label: "BAPP", desc: "BAPP PML/PPL", color: "amber" },
+  { id: "bast",          icon: <FileText />,      label: "BAST", desc: "BAST PML/PPL", color: "amber" },
   { id: "surat-pernyataan-penyelesaian-lapangan", icon: <FileText />, label: "Surat Pernyataan Penyelesaian Lapangan", desc: "Khusus PML", color: "amber" },
   { id: "lampiran",      icon: <FileText />,      label: "Lampiran", desc: "Lampiran SPK PML/PPL", color: "amber" },
 ];
@@ -716,6 +717,8 @@ const BAPP_PPL_TEMPLATE_URL                   = "/templates/BAPP PPL.docx";
 const SURAT_PERNYATAAN_PENYELESAIAN_LAPANGAN_TEMPLATE_URL = "/templates/Dasar Pembayaran.docx";
 const LAMPIRAN_PML_TEMPLATE_URL              = "/templates/LAMPIRAN PML.docx";
 const LAMPIRAN_PPL_TEMPLATE_URL              = "/templates/LAMPIRAN PPL.docx";
+const BAST_PML_TEMPLATE_URL = "/templates/BAST PML.docx";
+const BAST_PPL_TEMPLATE_URL = "/templates/BAST PPL.docx";
 
 // ─── TEMPLATE DATA BUILDERS ───────────────────────────────────────────────────
 
@@ -2367,6 +2370,10 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
   const [bappManualSelect,        setBappManualSelect]        = useState("");
   const [bappGenerating,          setBappGenerating]          = useState(false);
   const [bappProgressText,        setBappProgressText]        = useState("");
+  const [bastRole,                setBastRole]                = useState("");
+  const [bastManualSelect,        setBastManualSelect]        = useState("");
+  const [bastGenerating,          setBastGenerating]          = useState(false);
+  const [bastProgressText,        setBastProgressText]        = useState("");
   const [suratPenyelesaianLapanganSelect, setSuratPenyelesaianLapanganSelect] = useState("");
   const [suratPenyelesaianLapanganGenerating, setSuratPenyelesaianLapanganGenerating] = useState(false);
   const [suratPenyelesaianLapanganProgressText, setSuratPenyelesaianLapanganProgressText] = useState("");
@@ -2539,6 +2546,11 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
     }
 
     if (docType.id === "bapp") {
+      e.preventDefault();
+      return;
+    }
+
+    if (docType.id === "bast") {
       e.preventDefault();
       return;
     }
@@ -3182,6 +3194,136 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
         );
       }
 
+      // ── BAST ────────────────────────────────────────────────────────────────
+      case "bast": {
+        const rows = lampiranData || [];
+        const isPml = bastRole === "PML";
+
+        const nikLookup = React.useMemo(() => {
+          const map = new Map();
+          for (const p of petugasData || []) {
+            const nama = upperText(p.nama);
+            if (nama && !map.has(nama)) map.set(nama, cleanText(p.nik));
+          }
+          return map;
+        }, [petugasData]);
+
+        const bastOptions = React.useMemo(() => {
+          if (!bastRole) return [];
+          const map = new Map();
+          for (const r of rows) {
+            const nama = cleanText(isPml ? r.nama_pml : r.nama_ppl);
+            if (!nama) continue;
+            const email = cleanText(isPml ? r.email_pengawas : r.email_pencacah) || "";
+            const identity = email ? upperText(email) : `NAMA::${upperText(nama)}`;
+            if (!map.has(identity)) map.set(identity, { value: identity, label: nama, name: nama, rows: [] });
+            map.get(identity).rows.push(r);
+          }
+          return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "id-ID", { sensitivity: "base" }));
+        }, [rows, bastRole, isPml]);
+
+        const filteredBastRows = React.useMemo(() => {
+          if (!bastRole) return [];
+          return rows.filter((r) => cleanText(isPml ? r.nama_pml : r.nama_ppl));
+        }, [rows, bastRole, isPml]);
+
+        return (
+          <div className="space-y-5">
+            <div className="rounded-3xl border border-orange-100 bg-orange-50/70 p-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-700">BAST PML/PPL</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                Pilih role, tentukan tanggal surat, lalu unduh dokumen manual atau semua.
+              </p>
+              <p className="mt-3 text-xs font-bold text-slate-500">
+                Data terbaca: {rows.length} baris dari sheet Lampiran
+              </p>
+            </div>
+
+            <div>
+              <p className={labelCls}>Pilih Role</p>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => { setBastRole("PML"); setBastManualSelect(""); }} className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-black transition ${bastRole === "PML" ? "bg-orange-600 text-white" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>PML</button>
+                <button type="button" onClick={() => { setBastRole("PPL"); setBastManualSelect(""); }} className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-black transition ${bastRole === "PPL" ? "bg-orange-600 text-white" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>PPL</button>
+              </div>
+            </div>
+
+            {bastRole && (
+              <>
+                <div>
+                  <label className={labelCls}>Tanggal Surat</label>
+                  <input
+                    type="date"
+                    min="2026-07-15"
+                    max="2026-07-31"
+                    className={inputCls}
+                    value={formData.tanggal_surat || ""}
+                    onChange={(e) => update("tanggal_surat", e.target.value)}
+                  />
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Rentang tanggal yang diizinkan: 15 Juli 2026 sampai 31 Juli 2026.</p>
+                </div>
+
+                <div>
+                  <label className={labelCls}>Unduh Manual</label>
+                  <select value={bastManualSelect} onChange={(e) => setBastManualSelect(e.target.value)} className={inputCls}>
+                    <option value="">— Pilih Nama {bastRole} —</option>
+                    {bastOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Daftar nama diurutkan berdasarkan abjad.</p>
+                </div>
+
+                {bastGenerating && (
+                  <div className="flex items-center gap-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700">
+                    <LoaderCircle size={18} className="animate-spin" />
+                    <span>{bastProgressText || "Sedang menyiapkan file BAST..."}</span>
+                  </div>
+                )}
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <button type="button" onClick={async () => {
+                    try {
+                      if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
+                      const selectedDate = new Date(formData.tanggal_surat);
+                      const minDate = new Date("2026-07-15T00:00:00");
+                      const maxDate = new Date("2026-07-31T23:59:59");
+                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Juli 2026.");
+                      if (!bastManualSelect) throw new Error("Pilih nama terlebih dahulu.");
+                      const chosen = bastOptions.find((option) => option.value === bastManualSelect);
+                      if (!chosen) throw new Error("Data nama yang dipilih tidak ditemukan.");
+                      setBastGenerating(true);
+                      setBastProgressText("Membuat dokumen terpilih...");
+                      await generateSingleBast(bastRole === "PML" ? BAST_PML_TEMPLATE_URL : BAST_PPL_TEMPLATE_URL, formData, chosen.rows, bastRole, nikLookup, chosen.name);
+                    } catch (err) { alert(err.message || err); }
+                    finally { setBastGenerating(false); setBastProgressText(""); }
+                  }} disabled={!bastManualSelect || filteredBastRows.length === 0 || bastGenerating} className="inline-flex items-center justify-center rounded-2xl bg-orange-500 px-5 py-3 text-sm font-black text-white shadow transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-orange-200">
+                    Download Terpilih
+                  </button>
+
+                  <button type="button" onClick={async () => {
+                    try {
+                      if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
+                      const selectedDate = new Date(formData.tanggal_surat);
+                      const minDate = new Date("2026-07-15T00:00:00");
+                      const maxDate = new Date("2026-07-31T23:59:59");
+                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Juli 2026.");
+                      setBastGenerating(true);
+                      setBastProgressText("Mempersiapkan batch download...");
+                      await generateBast(bastRole === "PML" ? BAST_PML_TEMPLATE_URL : BAST_PPL_TEMPLATE_URL, formData, filteredBastRows, bastRole, nikLookup, ({ batchIndex, totalBatches }) => {
+                        setBastProgressText(`Membuat batch ${batchIndex} dari ${totalBatches}...`);
+                      });
+                    } catch (err) { alert(err.message || err); }
+                    finally { setBastGenerating(false); setBastProgressText(""); }
+                  }} disabled={filteredBastRows.length === 0 || bastGenerating} className="inline-flex items-center justify-center rounded-2xl border border-orange-200 bg-white px-5 py-3 text-sm font-black text-orange-700 shadow transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60">
+                    Download Semua
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      }
+
       // ── SURAT PERNYATAAN PENYELESAIAN LAPANGAN ───────────────────────────
       case "surat-pernyataan-penyelesaian-lapangan": {
         const filteredSuratPenyelesaianLapanganRows = React.useMemo(() => {
@@ -3404,7 +3546,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
   return (
     <form onSubmit={handleSubmit} className="space-y-5 rounded-[2.5rem] border border-orange-100 bg-white/80 p-6 shadow-xl shadow-orange-900/5 backdrop-blur md:p-10">
       {renderFields()}
-      {docType.id !== "lampiran" && docType.id !== "bapp" && docType.id !== "surat-pernyataan-penyelesaian-lapangan" && (
+      {docType.id !== "lampiran" && docType.id !== "bapp" && docType.id !== "bast" && docType.id !== "surat-pernyataan-penyelesaian-lapangan" && (
         <div className="border-t border-orange-100 pt-5">
           <button type="submit" className="group inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-7 py-4 font-black text-white shadow-2xl shadow-orange-500/25 transition hover:-translate-y-1 hover:bg-orange-600">
             Pratinjau Dokumen <ChevronRight className="transition group-hover:translate-x-1" size={18} />
@@ -3414,6 +3556,9 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
     </form>
   );
 }
+
+// BAST
+
 
 // ─── DOCX PREVIEW COMPONENTS ─────────────────────────────────────────────────
 
@@ -3610,6 +3755,134 @@ function LampiranDocxPreview({ formValues, lampiranRows }) {
   );
 }
 
+// ─── BAST ─────────────────────────────────────────────────
+const BAST_NILAI_PERJANJIAN = {
+  PML: { nilai: "Rp5.831.000,00", terbilang: "Lima juta delapan ratus tiga puluh satu ribu rupiah" },
+  PPL: { nilai: "Rp5.534.000,00", terbilang: "Lima juta lima ratus tiga puluh empat ribu rupiah" },
+};
+
+// Nomor surat: pakai nomor kontrak petugas sebagai sumber nomor urut
+// (pola yang sama dipakai buildBappTemplateData -> nomor_prefix).
+function buildBastNomorSurat(nomorKontrak, jenis) {
+  const prefix = extractNomorPrefix(nomorKontrak) || "...";
+  const suffix = jenis === "PML"
+    ? "BAST-I-SE2026/PML/3172/SS.340/2026"
+    : "BAST-I-SE2026/PPL/3172/SS.330/2026";
+  return `B-${prefix}/${suffix}`;
+}
+
+function buildBastTemplateData(formValues, personRows, jenis, nikLookup) {
+  const isPml = upperText(jenis) === "PML";
+  const grouped = groupLampiranRows(personRows || [], jenis);
+
+  const namaPetugas = isPml
+    ? cleanText(personRows?.[0]?.nama_pml)
+    : cleanText(personRows?.[0]?.nama_ppl);
+
+  const nomorKontrak = cleanText(
+    isPml ? personRows?.[0]?.nomor_kontrak_pml : personRows?.[0]?.nomor_kontrak_ppl
+  );
+
+  const totalJumlah = grouped.reduce((sum, r) => sum + (r.jumlah || 0), 0);
+  const dateParts = getBappDateParts(formValues?.tanggal_surat || "");
+  const nilai = BAST_NILAI_PERJANJIAN[isPml ? "PML" : "PPL"];
+  const nik = nikLookup?.get(upperText(namaPetugas)) || "";
+
+  return {
+    nomor_surat: buildBastNomorSurat(nomorKontrak, isPml ? "PML" : "PPL"),
+    nomor_perjanjian: nomorKontrak || "...",
+    hari: dateParts.hari_terbilang,
+    tanggal_terbilang: dateParts.tanggal_terbilang,
+    tanggal: dateParts.tanggal,
+    bulan: dateParts.bulan,
+    bulan_terbilang: dateParts.bulan_terbilang,
+    nama: namaPetugas,
+    nik,
+    jumlah: totalJumlah,
+    nilai_perjanjian: nilai.nilai,
+    nilai_perjanjian_terbilang: nilai.terbilang,
+    peserta: grouped.map((r, idx) => ({
+      no: idx + 1,
+      nama_petugas: isPml
+          ? cleanText(r.nama_ppl)
+          : namaPetugas,
+      kecamatan: formatKodeNama(r.kdkec, r.kecamatan),
+      kelurahan: formatKodeNama(r.kddesa, r.kelurahan),
+      jumlah: r.jumlah || 0,
+    })),
+  };
+}
+
+// ── 5) CREATE / DOWNLOAD FUNCTIONS ───────────────────────────
+// Mengikuti pola createLampiranBlobFromTemplateBuffer + generateLampiran,
+// supaya fetch template hanya sekali lalu dipakai berulang untuk tiap orang.
+
+function createBastBlobFromTemplateBuffer(templateArrayBuffer, formValues, personRows, jenis, nikLookup) {
+  const zip = new PizZip(templateArrayBuffer);
+  const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+  doc.render(buildBastTemplateData(formValues || {}, personRows || [], jenis, nikLookup));
+  return doc.getZip().generate({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+}
+
+async function generateSingleBast(templateUrl, formValues, personRows, jenis, nikLookup, displayName) {
+  if (!personRows || personRows.length === 0) throw new Error("Tidak ada data untuk BAST yang dipilih");
+  const templateResponse = await fetch(templateUrl);
+  if (!templateResponse.ok) throw new Error(`Gagal memuat template BAST: ${templateResponse.status} ${templateResponse.statusText}`);
+  const templateArrayBuffer = await templateResponse.arrayBuffer();
+  const blob = createBastBlobFromTemplateBuffer(templateArrayBuffer, formValues || {}, personRows, jenis, nikLookup);
+  const safeName = sanitizeFileName(displayName || `${jenis}-bast`);
+  saveAs(blob, `BAST ${jenis} - ${safeName}.docx`);
+}
+
+const BAST_ZIP_BATCH_SIZE = 150;
+
+async function generateBast(templateUrl, formValues, lampiranRows, jenis, nikLookup, onProgress) {
+  const sourceRows = lampiranRows || [];
+  const isPml = upperText(jenis) === "PML";
+
+  // Kelompokkan baris per-orang, sama persis dengan logika di generateLampiran()
+  // supaya email dipakai sebagai kunci utama (menghindari salah gabung nama kembar).
+  const groups = new Map();
+  for (const row of sourceRows) {
+    const namaPml = cleanText(row.nama_pml || "");
+    const namaPpl = cleanText(row.nama_ppl || "");
+    const emailPml = cleanText(row.email_pengawas || "");
+    const emailPpl = cleanText(row.email_pencacah || "");
+    const displayName = isPml ? namaPml : namaPpl;
+    if (!displayName) continue;
+    const emailKey = upperText(isPml ? emailPml : emailPpl);
+    const identity = emailKey || `NAMA::${upperText(displayName)}`;
+    if (!groups.has(identity)) groups.set(identity, { displayName, rows: [] });
+    groups.get(identity).rows.push(row);
+  }
+
+  if (groups.size === 0) throw new Error(`Tidak ada data ${jenis}`);
+
+  const templateResponse = await fetch(templateUrl);
+  if (!templateResponse.ok) throw new Error(`Gagal memuat template BAST: ${templateResponse.status} ${templateResponse.statusText}`);
+  const templateArrayBuffer = await templateResponse.arrayBuffer();
+
+  const entries = [...groups.values()];
+  const totalBatches = Math.ceil(entries.length / BAST_ZIP_BATCH_SIZE);
+
+  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+    const batchEntries = entries.slice(batchIndex * BAST_ZIP_BATCH_SIZE, (batchIndex + 1) * BAST_ZIP_BATCH_SIZE);
+    const zipFiles = [];
+    for (const { displayName, rows } of batchEntries) {
+      const blob = createBastBlobFromTemplateBuffer(templateArrayBuffer, formValues || {}, rows, jenis, nikLookup);
+      zipFiles.push({ name: `BAST ${jenis} - ${sanitizeFileName(displayName)}.docx`, blob });
+    }
+    if (typeof onProgress === "function") {
+      onProgress({ batchIndex: batchIndex + 1, totalBatches, totalRows: entries.length });
+    }
+    const batchSuffix = totalBatches > 1 ? ` - Bagian ${batchIndex + 1} dari ${totalBatches}` : "";
+    await downloadMultipleAsZip(zipFiles, `BAST ${jenis} ${formValues?.tanggal_surat || "SE2026"}${batchSuffix}.zip`);
+  }
+}
+
 // ─── DOC PREVIEW (dispatcher) ─────────────────────────────────────────────────
 
 function DocPreview({ docType, data }) {
@@ -3642,4 +3915,3 @@ function DocPreview({ docType, data }) {
     </div>
   );
 }
-
