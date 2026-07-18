@@ -32,6 +32,7 @@ const DOC_TYPES = [
   { id: "bast",          icon: <FileText />,      label: "BAST", desc: "BAST PML/PPL", color: "amber" },
   { id: "surat-pernyataan-penyelesaian-lapangan", icon: <FileText />, label: "Surat Pernyataan Penyelesaian Lapangan", desc: "Khusus PML", color: "amber" },
   { id: "lampiran",      icon: <FileText />,      label: "Lampiran", desc: "Lampiran SPK PML/PPL", color: "amber" },
+  { id: "gabungan-pembayaran", icon: <Receipt />, label: "Gabungan Administrasi Pembayaran", desc: "Generate satu berkas pembayaran lengkap per PML atau PPL", color: "amber" },
 ];
 
 // ─── XLSX PARSER ─────────────────────────────────────────────────────────────
@@ -88,28 +89,92 @@ function normalizeBappRow(row) {
   const get = (...keys) => {
     for (const key of keys) {
       const value = normalized[key];
-      if (value != null && String(value).trim() !== "") return String(value).trim();
+      const text = String(value ?? "").trim();
+      // Sel formula Excel/Google Sheets seperti #N/A jangan dianggap sebagai data.
+      if (text && !/^#(?:N\/A|VALUE!|REF!|DIV\/0!|NAME\?|NUM!|NULL!)$/i.test(text)) return text;
     }
     return "";
   };
 
+  const nama = get("nama", "nama lengkap", "nama_lengkap", "nama petugas", "nama peserta", "nama_petugas");
+  const jabatan = get("jabatan", "posisi", "jenis petugas", "role", "kategori");
+  const jabatanUpper = jabatan.toUpperCase();
+  const isPml = /PML|PENGAWAS/.test(jabatanUpper);
+  const isPpl = /PPL|PENCACAH/.test(jabatanUpper);
+  const email = get("email", "email petugas", "email peserta", "mail");
+  const emailPengawas = get("email pengawas", "email pml", "mail pengawas", "mail pml");
+  const namaPengawas = get("nama pengawas", "nama pml", "pengawas");
+  const namaPplKolom = get("nama ppl", "pencacah", "nama pencacah");
+  const nomorSpk = get("nomor spk", "nomor_spk", "nomor kontrak", "nomor_kontrak", "spk");
+  const slsOngoing = get(
+    "sls (selesai + sedang dikerjakan)",
+    "sls selesai + sedang dikerjakan",
+    "sls (selesai dan sedang dikerjakan)",
+    "sls selesai dan sedang dikerjakan",
+    "sls ongoing",
+    "sls_ongoing"
+  );
+  const prelistTotal = get("prelist total", "prelist_total", "target prelist", "target_prelist");
+  const realisasiTotal = get(
+    "realisasi total",
+    "realisasi tot",
+    "realisasi_total",
+    "realisasi hasil pendataan",
+    "realisasi_hasil",
+    "realisasi",
+    "realisasi_hasil_pendataan"
+  );
+  const persentasePrelist = get(
+    "persentase prelist",
+    "persentase pendataan",
+    "persentase realisasi",
+    "persentase",
+    "persentase p",
+    "persentase_p",
+    "persentase_prelist"
+  );
+
   return {
     no: get("no", "nomor"),
-    nama: get("nama", "nama lengkap", "nama_lengkap", "nama petugas", "nama peserta", "nama_petugas"),
-    jabatan: get("jabatan", "posisi", "jenis petugas", "role", "kategori"),
-    jabatan_raw: get("jabatan", "posisi", "jenis petugas", "role", "kategori"),
+    nama,
+    jabatan,
+    jabatan_raw: jabatan,
     wilayah: get("wilayah", "wil tugas", "wil. tugas", "wilayah tugas", "kecamatan", "asal"),
-    email: get("email", "email petugas", "email peserta", "mail"),
+    kecamatan: get("kecamatan", "wilayah", "wil tugas", "wil. tugas", "wilayah tugas", "asal"),
+    email,
     kelas: get("kelas"),
     gelombang: get("gelombang"),
     tempat: get("tempat", "hotel", "tc"),
     telp: get("telp", "no hp", "nomor hp"),
-    nama_pml: get("nama pml", "pengawas"),
-    nama_ppl: get("nama ppl", "pencacah"),
+
+    // Untuk baris PML, identitas PML adalah Nama Lengkap/Email baris itu sendiri.
+    // Untuk baris PPL, nama dan email pengawas diambil dari kolom relasi pada sheet yang sama.
+    nama_pengawas: namaPengawas || (isPml ? nama : ""),
+    email_pengawas: emailPengawas || (isPml ? email : ""),
+    nama_pml: namaPengawas || (isPml ? nama : ""),
+    email_pml: emailPengawas || (isPml ? email : ""),
+    nama_ppl: namaPplKolom || (isPpl ? nama : ""),
+    email_ppl: isPpl ? email : get("email ppl", "email pencacah"),
+
     nik: get("nik", "nik petugas", "nik peserta"),
+    nomor_spk: nomorSpk,
+    nomor_kontrak: nomorSpk,
+
+    sls_total: get("sls total", "sls_total"),
     sls_40: get("sls 40%", "sls 40", "sls_40", "sls40", "sls 40 persen"),
-    nomor_spk: get("nomor spk", "nomor_spk", "nomor spk", "nomor kontrak", "nomor_kontrak", "spk"),
-    nomor_kontrak: get("nomor spk", "nomor_spk", "nomor spk", "nomor kontrak", "nomor_kontrak", "spk"),
+    sls_60: get("sls 60%", "sls 60", "sls_60", "sls60", "sls 60 persen"),
+    sls_ongoing: slsOngoing,
+    sls_selesai_sedang_dikerjakan: slsOngoing,
+    persentase_sls: get("persentase sls", "persentase_sls", "% sls"),
+    tanggal_screenshot: get("tanggal screenshot", "tanggal_screenshot"),
+
+    prelist_total: prelistTotal,
+    target_prelist: prelistTotal,
+    realisasi_total: realisasiTotal,
+    realisasi_hasil_pendataan: realisasiTotal,
+    persentase_prelist: persentasePrelist,
+    persentase_pendataan: persentasePrelist,
+    flag: get("flag", "status flag"),
   };
 }
 
@@ -127,6 +192,87 @@ function parseBappData(arrayBuffer) {
   const sheet = workbook.Sheets[sheetName];
   const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
   return raw.map(normalizeBappRow).filter((r) => r.nama || r.email || r.jabatan);
+}
+
+// ─── STATUS SLS PARSER ───────────────────────────────────────────────────────
+// Sheet "Status SLS" dipakai khusus untuk menyaring tabel pada BERKAS
+// PEMBAYARAN gabungan. Hanya SLS dengan status "Selesai" atau
+// "Sedang Dikerjakan" yang akan dihitung dan ditampilkan.
+function normalizeStatusSlsCode(value, width = 0) {
+  const digits = String(value ?? "").replace(/[^0-9]/g, "");
+  if (!digits) return "";
+  if (!width) return digits;
+  return digits.padStart(width, "0").slice(-width);
+}
+
+function normalizeStatusSlsLabel(value) {
+  return String(value ?? "")
+    .replace(/^\s*\[[^\]]*\]\s*/g, "")
+    .replace(/^\s*[-:–—]+\s*/g, "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+}
+
+function isAllowedStatusSls(value) {
+  const status = normalizeStatusSlsLabel(value);
+  return status === "SELESAI" || status === "SEDANG DIKERJAKAN";
+}
+
+function normalizeStatusSlsRow(row) {
+  const normalized = {};
+  Object.entries(row || {}).forEach(([key, value]) => {
+    normalized[String(key ?? "").trim().toLowerCase().replace(/\s+/g, " ")] = String(value ?? "").trim();
+  });
+
+  const get = (...keys) => {
+    for (const key of keys) {
+      const value = normalized[key];
+      if (value != null && String(value).trim() !== "") return String(value).trim();
+    }
+    return "";
+  };
+
+  const statusRaw = get("status", "status sls", "status_sls", "keterangan status", "keterangan");
+  const kodeKecamatan = get("kode kecamatan", "kdkec", "kode_kecamatan", "kec");
+  const kodeKelurahan = get("kode kelurahan", "kddesa", "kode_kelurahan", "desa");
+  const kodeSls = get("kode sls", "kode_sls", "kdsls", "sls");
+
+  return {
+    nama_pml: get("nama pml", "nama_pml", "pengawas", "pml"),
+    email_pml: get("email pml", "email_pml", "email pengawas", "mail pml", "mail pengawas"),
+    nama_ppl: get("nama ppl", "nama_ppl", "pencacah", "ppl"),
+    email_ppl: get("email ppl", "email_ppl", "email pencacah", "mail ppl", "mail pencacah"),
+
+    kdkec: normalizeStatusSlsCode(kodeKecamatan, 3),
+    kddesa: normalizeStatusSlsCode(kodeKelurahan, 3),
+    kode_sls: normalizeStatusSlsCode(kodeSls, 6),
+
+    jumlah_prelist: get("jumlah prelist", "prelist total", "prelist_total", "target prelist"),
+    jumlah_realisasi: get("jumlah realisasi", "realisasi total", "realisasi_total", "realisasi"),
+    persentase: get("persentase", "persentase pendataan", "persentase_pendataan"),
+    status: normalizeStatusSlsLabel(statusRaw),
+    status_raw: statusRaw,
+    status_diperbolehkan: isAllowedStatusSls(statusRaw),
+  };
+}
+
+function parseStatusSlsData(arrayBuffer) {
+  const workbook = XLSX.read(arrayBuffer, { type: "array" });
+  const sheetName = workbook.SheetNames.find(
+    (name) => String(name ?? "").trim().toLowerCase() === "status sls"
+  );
+
+  if (!sheetName) {
+    console.warn("Sheet bernama 'Status SLS' tidak ditemukan; tabel gabungan tidak akan memakai filter status.");
+    return [];
+  }
+
+  const sheet = workbook.Sheets[sheetName];
+  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+  return raw
+    .map(normalizeStatusSlsRow)
+    .filter((row) => row.nama_pml || row.nama_ppl || row.email_pml || row.email_ppl || row.kode_sls || row.status);
 }
 
 function isBappRowForRole(row, role = "PML") {
@@ -477,6 +623,33 @@ function findBappSheetFromRows(sheetRows = []) {
   return null;
 }
 
+function findStatusSlsSheetFromRows(sheetRows = []) {
+  // Prioritaskan nama tab persis agar tidak tertukar dengan sheet lain.
+  const exact = (sheetRows || []).find(
+    (sheet) => String(sheet?.sheetName ?? "").trim().toLowerCase() === "status sls"
+  );
+  if (exact && Array.isArray(exact.rows) && exact.rows.length > 0) {
+    const headers = Object.keys(exact.rows[0]).map((h) => String(h ?? "").trim());
+    return { sheet: exact, data: exact.rows, headers, sheetName: exact.sheetName };
+  }
+
+  // Fallback berdasarkan struktur header.
+  for (const sheet of sheetRows || []) {
+    const rows = Array.isArray(sheet.rows) ? sheet.rows : [];
+    if (rows.length === 0) continue;
+    const headers = Object.keys(rows[0]).map((h) => String(h ?? "").trim());
+    const keys = headers.map((h) => h.toLowerCase());
+    const hasPml = keys.some((h) => ["nama pml", "nama_pml", "pengawas"].includes(h));
+    const hasPpl = keys.some((h) => ["nama ppl", "nama_ppl", "pencacah"].includes(h));
+    const hasKodeSls = keys.some((h) => ["kode sls", "kode_sls", "kdsls"].includes(h));
+    const hasStatus = keys.some((h) => ["status", "status sls", "status_sls"].includes(h));
+    if (hasPml && hasPpl && hasKodeSls && hasStatus) {
+      return { sheet, data: rows, headers, sheetName: sheet.sheetName };
+    }
+  }
+  return null;
+}
+
 function normalizeHeaderKeys(headers) {
   return headers.map((h) => String(h ?? "").trim().toLowerCase());
 }
@@ -546,11 +719,17 @@ async function loadGoogleSheet(source, apiKey = "") {
     const bappSheetInfo = findBappSheetFromRows(sheetRows);
     const bappData = bappSheetInfo ? bappSheetInfo.data.map(normalizeBappRow) : [];
 
+    const statusSlsSheetInfo = findStatusSlsSheetFromRows(sheetRows);
+    const statusSls = statusSlsSheetInfo
+      ? statusSlsSheetInfo.data.map(normalizeStatusSlsRow).filter((row) => row.kode_sls || row.status || row.nama_ppl || row.email_ppl)
+      : [];
+
     console.log("Data petugas parsed rows (API):", data);
     console.log("Lampiran state candidate rows (API):", lampiran);
     console.log("BAPP parsed rows (API):", bappData);
+    console.log("Status SLS parsed rows (API):", statusSls);
 
-    return { data, lampiran, bappData, rawHeaders };
+    return { data, lampiran, bappData, statusSls, rawHeaders };
   }
 
   const response = await fetch(source?.exportUrl || source);
@@ -575,18 +754,66 @@ async function loadGoogleSheet(source, apiKey = "") {
 
   const lampiran = parseLampiranXlsxData(arrayBuffer);
   const bappData = parseBappData(arrayBuffer);
+  const statusSls = parseStatusSlsData(arrayBuffer);
 
   console.log("Data petugas parsed rows:", data);
   console.log("Lampiran state candidate rows:", lampiran);
   console.log("BAPP parsed rows:", bappData);
+  console.log("Status SLS parsed rows:", statusSls);
 
-  return { data, lampiran, bappData, rawHeaders };
+  return { data, lampiran, bappData, statusSls, rawHeaders };
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
 function cleanText(value) { return String(value ?? "").trim(); }
 function upperText(value) { return cleanText(value).toUpperCase(); }
+
+// ─── SELECTION XLSX (fitur "Download Beberapa") ──────────────────────────────
+// Memungkinkan pengguna mengunggah file Excel berisi kolom Nama dan/atau Email
+// untuk memilih sekumpulan orang yang mau di-generate sekaligus (batch terpilih),
+// tanpa harus memilih satu-per-satu lewat dropdown "Download Terpilih".
+// Pencocokan diprioritaskan lewat Email (lebih unik), fallback ke Nama (uppercase).
+
+function normalizeSelectionRow(row) {
+  const normalized = {};
+  Object.entries(row).forEach(([k, v]) => {
+    const key = String(k ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+    normalized[key] = String(v ?? "").trim();
+  });
+  return {
+    nama: normalized["nama"] || normalized["nama lengkap"] || normalized["nama_lengkap"] || normalized["nama-lengkap"] || "",
+    email: normalized["email"] || normalized["mail"] || normalized["e-mail"] || "",
+  };
+}
+
+function parseSelectionXlsx(arrayBuffer) {
+  const workbook = XLSX.read(arrayBuffer, { type: "array" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  if (!sheet) return [];
+  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+  return raw.map(normalizeSelectionRow).filter((r) => r.nama || r.email);
+}
+
+function buildSelectionKeySet(selectionRows = []) {
+  const set = new Set();
+  for (const r of selectionRows) {
+    const email = cleanText(r.email);
+    const nama = cleanText(r.nama);
+    if (email) set.add(`EMAIL::${upperText(email)}`);
+    if (nama) set.add(`NAME::${upperText(nama)}`);
+  }
+  return set;
+}
+
+function rowMatchesSelection(selectionKeySet, nama, email) {
+  if (!selectionKeySet || selectionKeySet.size === 0) return false;
+  const emailClean = cleanText(email);
+  if (emailClean && selectionKeySet.has(`EMAIL::${upperText(emailClean)}`)) return true;
+  const namaClean = cleanText(nama);
+  if (namaClean && selectionKeySet.has(`NAME::${upperText(namaClean)}`)) return true;
+  return false;
+}
 
 function uniqueSorted(values) {
   return [...new Set(values.map(cleanText).filter(Boolean))].sort((a, b) =>
@@ -719,6 +946,8 @@ const LAMPIRAN_PML_TEMPLATE_URL              = "/templates/LAMPIRAN PML.docx";
 const LAMPIRAN_PPL_TEMPLATE_URL              = "/templates/LAMPIRAN PPL.docx";
 const BAST_PML_TEMPLATE_URL = "/templates/BAST PML.docx";
 const BAST_PPL_TEMPLATE_URL = "/templates/BAST PPL.docx";
+const BERKAS_PEMBAYARAN_PML_TEMPLATE_URL = "/templates/BERKAS PEMBAYARAN PML.docx";
+const BERKAS_PEMBAYARAN_PPL_TEMPLATE_URL = "/templates/BERKAS PEMBAYARAN PPL.docx";
 
 // ─── TEMPLATE DATA BUILDERS ───────────────────────────────────────────────────
 
@@ -757,9 +986,27 @@ function buildBappTemplateData(formValues, row = {}, role = "PML") {
     nomor_surat: cleanText(formValues?.nomor_surat || ""),
     nomor_dokumen: cleanText(formValues?.nomor_surat || ""),
     nomor_prefix: extractNomorPrefix(nomorKontrak),
+    nomor_spk: nomorKontrak,
     nomor_kontrak: nomorKontrak,
     nik: cleanText(row?.nik || ""),
+    nama_pml: cleanText(row?.nama_pml || row?.nama_pengawas || (role === "PML" ? nama : "")),
+    nama_pengawas: cleanText(row?.nama_pengawas || row?.nama_pml || (role === "PML" ? nama : "")),
+    email_pengawas: cleanText(row?.email_pengawas || row?.email_pml || (role === "PML" ? row?.email : "")),
+    nama_ppl: cleanText(row?.nama_ppl || (role === "PPL" ? nama : "")),
+    sls_total: cleanText(row?.sls_total || ""),
     sls_40: cleanText(row?.sls_40 || ""),
+    sls_60: cleanText(row?.sls_60 || ""),
+    sls_ongoing: cleanText(row?.sls_ongoing || row?.sls_selesai_sedang_dikerjakan || ""),
+    sls_selesai_sedang_dikerjakan: cleanText(row?.sls_ongoing || row?.sls_selesai_sedang_dikerjakan || ""),
+    persentase_sls: cleanText(row?.persentase_sls || ""),
+    tanggal_screenshot: cleanText(row?.tanggal_screenshot || ""),
+    target_prelist: cleanText(row?.target_prelist || row?.prelist_total || ""),
+    prelist_total: cleanText(row?.prelist_total || row?.target_prelist || ""),
+    realisasi_hasil_pendataan: cleanText(row?.realisasi_hasil_pendataan || row?.realisasi_total || ""),
+    realisasi_total: cleanText(row?.realisasi_total || row?.realisasi_hasil_pendataan || ""),
+    persentase_prelist: cleanText(row?.persentase_prelist || row?.persentase_pendataan || ""),
+    persentase_pendataan: cleanText(row?.persentase_pendataan || row?.persentase_prelist || ""),
+    flag: cleanText(row?.flag || ""),
   };
 }
 
@@ -1359,15 +1606,21 @@ function groupLampiranRows(lampiranRows = [], jenis = "PML") {
     // Maka nama_ppl WAJIB ikut jadi bagian key supaya setiap PPL tetap dapat
     // baris sendiri-sendiri.
     const keyBase = isPml
-      ? `${namaPml}|${namaPpl}|${kec}|${desa}`
+      ? `${namaPml}|${namaPpl}`
       : `${kec}|${desa}`;
 
     if (!map.has(keyBase)) {
       map.set(keyBase, {
         nama_pml: namaPml,
         nama_ppl: namaPpl,
+        email_pengawas: cleanText(r.email_pengawas),
+        email_pencacah: cleanText(r.email_pencacah),
+        kdprov: cleanText(r.kdprov),
+        kdkab: cleanText(r.kdkab),
         kdkec: kec,
         kddesa: desa,
+        nmprov: cleanText(r.nmprov).toUpperCase(),
+        nmkab: cleanText(r.nmkab).toUpperCase(),
         kecamatan: cleanText(r.kecamatan).toUpperCase(),
         kelurahan: cleanText(r.kelurahan).toUpperCase(),
 
@@ -1659,6 +1912,7 @@ export default function PortalAdministrasiSE2026() {
   const [petugasData,        setPetugasData]        = useState([]);
   const [lampiranData,       setLampiranData]       = useState([]);
   const [bappData,           setBappData]           = useState([]);
+  const [statusSlsData,      setStatusSlsData]      = useState([]);
   const [xlsxLoaded,         setXlsxLoaded]         = useState(false);
   const [xlsxFileName,       setXlsxFileName]       = useState("data-petugas.xlsx");
   const [googleSheetUrl,     setGoogleSheetUrl]     = useState("https://docs.google.com/spreadsheets/d/10jA_NOMNn5pBuy1OPrSdHstscRrUOUlEDElk-jOmXLQ/edit?gid=1095810027#gid=1095810027");
@@ -1676,17 +1930,18 @@ export default function PortalAdministrasiSE2026() {
     setGoogleSheetError(null);
     setGoogleSheetLoading(true);
     try {
-      const { data, lampiran, bappData: loadedBappData } = await loadGoogleSheet(normalized, googleSheetApiKey);
-      if (data.length === 0 && (!lampiran || lampiran.length === 0) && (!loadedBappData || loadedBappData.length === 0)) {
-        setGoogleSheetError("Tidak ada data petugas, lampiran, maupun BAPP yang terbaca.");
+      const { data, lampiran, bappData: loadedBappData, statusSls: loadedStatusSls } = await loadGoogleSheet(normalized, googleSheetApiKey);
+      if (data.length === 0 && (!lampiran || lampiran.length === 0) && (!loadedBappData || loadedBappData.length === 0) && (!loadedStatusSls || loadedStatusSls.length === 0)) {
+        setGoogleSheetError("Tidak ada data petugas, Lampiran, Pembayaran, maupun Status SLS yang terbaca.");
         return;
       }
 
       setPetugasData(data || []);
       setLampiranData(lampiran || []);
       setBappData(loadedBappData || []);
+      setStatusSlsData(loadedStatusSls || []);
       setXlsxLoaded(true);
-      setXlsxFileName(`${data.length} petugas, ${lampiran?.length || 0} lampiran, ${loadedBappData?.length || 0} BAPP`);
+      setXlsxFileName(`${data.length} petugas, ${lampiran?.length || 0} lampiran, ${loadedBappData?.length || 0} pembayaran, ${loadedStatusSls?.length || 0} status SLS`);
     } catch (err) {
       setGoogleSheetError(`Gagal memuat Google Sheet: ${err.message}`);
     } finally {
@@ -1703,10 +1958,12 @@ export default function PortalAdministrasiSE2026() {
         const data = parseXlsxData(buffer);
         const lampiran = parseLampiranXlsxData(buffer);
         const bappRows = parseBappData(buffer);
+        const statusSlsRows = parseStatusSlsData(buffer);
         setPetugasData(data || []);
         setLampiranData(lampiran || []);
         setBappData(bappRows || []);
-        setXlsxLoaded(Boolean(lampiran?.length || data?.length || bappRows?.length));
+        setStatusSlsData(statusSlsRows || []);
+        setXlsxLoaded(Boolean(lampiran?.length || data?.length || bappRows?.length || statusSlsRows?.length));
       } catch (err) {
         console.warn("Tidak dapat memuat data-petugas.xlsx:", err.message);
       }
@@ -1737,10 +1994,12 @@ export default function PortalAdministrasiSE2026() {
         const data = parseXlsxData(buffer);
         const lampiran = parseLampiranXlsxData(buffer);
         const bappRows = parseBappData(buffer);
+        const statusSlsRows = parseStatusSlsData(buffer);
         setPetugasData(data || []);
         setLampiranData(lampiran || []);
         setBappData(bappRows || []);
-        setXlsxLoaded(Boolean(lampiran?.length || data?.length || bappRows?.length));
+        setStatusSlsData(statusSlsRows || []);
+        setXlsxLoaded(Boolean(lampiran?.length || data?.length || bappRows?.length || statusSlsRows?.length));
         setXlsxFileName(file.name);
       } catch (err) { alert("Gagal membaca file xlsx: " + err.message); }
     };
@@ -1870,7 +2129,7 @@ export default function PortalAdministrasiSE2026() {
                     <h2 className="text-3xl font-black tracking-tight text-slate-950">{selectedDoc.label}</h2>
                   </div>
                 </div>
-                <DocForm docType={selectedDoc} formData={formData} setFormData={setFormData} onPreview={(data) => { setPreviewData(data); setView("preview"); }} petugasData={petugasData} lampiranData={lampiranData} bappData={bappData} xlsxLoaded={xlsxLoaded} />
+                <DocForm docType={selectedDoc} formData={formData} setFormData={setFormData} onPreview={(data) => { setPreviewData(data); setView("preview"); }} petugasData={petugasData} lampiranData={lampiranData} bappData={bappData} statusSlsData={statusSlsData} xlsxLoaded={xlsxLoaded} />
               </div>
             </motion.div>
           )}
@@ -1998,7 +2257,6 @@ function XlsxUploadCard({ loaded, fileName, petugasCount, onUpload }) {
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-100"><Upload size={24} className="text-orange-600" /></div>
           <p className="font-black text-slate-800">Unggah Data Petugas (Opsional)</p>
           <p className="mt-1 text-sm font-semibold text-slate-500">Drag & drop file <span className="text-orange-600">data-petugas.xlsx</span> di sini untuk mengganti.</p>
-          <p className="mt-2 text-xs text-slate-400">Kolom: Nama, NIK, Jabatan, Wil. Tugas, Pangkat/Gol, Kelas, Gelombang</p>
           <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => onUpload(e.target.files[0])} />
         </div>
       )}
@@ -2012,24 +2270,17 @@ function GoogleSheetCard({ url, apiKey, onUrlChange, onApiKeyChange, onLoad, loa
       <div className="flex items-center gap-4">
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100"><MapPin size={22} className="text-orange-600" /></div>
         <div>
-          <p className="font-black text-slate-900">Load dari Google Spreadsheet</p>
-          <p className="text-sm text-slate-500">Gunakan sheet dengan kolom TC, NIK, Jabatan, Wil. Tugas, Pangkat/Gol, Kelas, Gelombang.</p>
+          <p className="font-black text-slate-900">Sedang Load Data, Harap Tunggu!</p>
         </div>
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
+      {/* <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
         <input value={url} onChange={(e) => onUrlChange(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/ID_SHEET/edit#gid=0"
           className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-orange-300 focus:bg-white" />
         <button type="button" onClick={onLoad} disabled={loading || !url}
           className="rounded-2xl bg-orange-600 px-5 py-3 text-sm font-bold text-white transition enabled:hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-orange-200">
           {loading ? "Memuat..." : "Muat"}
         </button>
-      </div>
-      <div className="mt-3">
-        <input value={apiKey || ""} onChange={(e) => onApiKeyChange(e.target.value)} placeholder="API Key Google Sheets (opsional)"
-          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-orange-300 focus:bg-white" />
-      </div>
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-      <p className="mt-3 text-xs text-slate-400">Jika API key diisi, data dibaca langsung dari Google Sheets API. Jika tidak, aplikasi memakai fallback export XLSX.</p>
+      </div> */}
     </motion.div>
   );
 }
@@ -2051,6 +2302,81 @@ function GenerateDocxButton({ onGenerate, label = "Unduh .docx" }) {
         {loading ? "Membuat..." : label}
       </button>
       {error && <p className="flex items-center gap-1 text-xs font-semibold text-red-500"><AlertCircle size={12} /> {error}</p>}
+    </div>
+  );
+}
+
+// ─── UNGGAH EXCEL NAMA/EMAIL (fitur "Download Beberapa") ────────────────────
+const SELECTION_TEMPLATE_URL = "/templates/Template Download Beberapa (Nama-Email).xlsx";
+
+async function downloadSelectionTemplate() {
+  const response = await fetch(SELECTION_TEMPLATE_URL);
+  if (!response.ok) throw new Error(`Gagal memuat template: ${response.status} ${response.statusText}`);
+  const blob = await response.blob();
+  saveAs(blob, "Template Download Beberapa (Nama-Email).xlsx");
+}
+
+function SelectionUploadPanel({ selectionRows, onSelectionLoaded, onClear, hint }) {
+  const fileRef = useRef(null);
+  const [error, setError] = useState("");
+  const [templateDownloading, setTemplateDownloading] = useState(false);
+
+  const handleFile = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const rows = parseSelectionXlsx(e.target.result);
+        if (rows.length === 0) throw new Error("Tidak ada baris Nama/Email yang terbaca dari file.");
+        setError("");
+        onSelectionLoaded(rows);
+      } catch (err) {
+        setError(err.message || "Gagal membaca file Excel.");
+      } finally {
+        if (fileRef.current) fileRef.current.value = "";
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleDownloadTemplate = async () => {
+    setTemplateDownloading(true);
+    try {
+      await downloadSelectionTemplate();
+    } catch (err) {
+      setError(err.message || "Gagal mengunduh template.");
+    } finally {
+      setTemplateDownloading(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-dashed border-orange-200 bg-orange-50/50 p-4 space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => fileRef.current?.click()}
+          className="inline-flex items-center gap-2 rounded-2xl border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-700 shadow-sm transition hover:bg-orange-50">
+          <Upload size={14} /> Unggah Excel Nama/Email
+        </button>
+        <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => handleFile(e.target.files[0])} />
+        {selectionRows.length > 0 && (
+          <span className="inline-flex items-center gap-2 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs font-bold text-green-700">
+            <CheckCircle size={12} /> {selectionRows.length} baris dimuat
+            <button type="button" onClick={onClear} className="ml-1 text-green-700 hover:text-green-900"><X size={12} /></button>
+          </span>
+        )}
+      </div>
+      {error && <p className="flex items-center gap-1 text-xs font-semibold text-red-500"><AlertCircle size={12} /> {error}</p>}
+      <p className="text-xs font-semibold text-slate-400">
+        {hint || "Kolom yang dibaca: Nama dan/atau Email. Baris yang tidak cocok dengan data akan diabaikan."}{" "}
+        <button
+          type="button"
+          onClick={handleDownloadTemplate}
+          disabled={templateDownloading}
+          className="font-bold text-orange-600 underline underline-offset-2 hover:text-orange-700 disabled:opacity-50"
+        >
+          {templateDownloading ? "Mengunduh..." : "disini"}
+        </button>
+      </p>
     </div>
   );
 }
@@ -2340,8 +2666,14 @@ function FilterPesertaHotelGelombangPanel({ xlsxLoaded, formData, setFormData, p
 
 // ─── DOC FORM ─────────────────────────────────────────────────────────────────
 
-function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampiranData = [], bappData = [], xlsxLoaded }) {
+function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampiranData = [], bappData = [], statusSlsData = [], xlsxLoaded }) {
   const update = (key, val) => setFormData((p) => ({ ...p, [key]: val }));
+
+const [gabunganRole, setGabunganRole] = useState(""); // "PML" | "PPL"
+const [gabunganManualSelect, setGabunganManualSelect] = useState("");
+const [gabunganGenerating, setGabunganGenerating] = useState(false);
+const [gabunganProgressText, setGabunganProgressText] = useState("");
+const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
 
   const [daftarHadirPeserta,     setDaftarHadirPeserta]     = useState([]);
   const [daftarHadirNamaInda,    setDaftarHadirNamaInda]    = useState("");
@@ -2370,16 +2702,22 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
   const [bappManualSelect,        setBappManualSelect]        = useState("");
   const [bappGenerating,          setBappGenerating]          = useState(false);
   const [bappProgressText,        setBappProgressText]        = useState("");
+  const [bappSelectionRows,       setBappSelectionRows]       = useState([]);
   const [bastRole,                setBastRole]                = useState("");
   const [bastManualSelect,        setBastManualSelect]        = useState("");
   const [bastGenerating,          setBastGenerating]          = useState(false);
   const [bastProgressText,        setBastProgressText]        = useState("");
+  const [bastSelectionRows,       setBastSelectionRows]       = useState([]);
   const [suratPenyelesaianLapanganSelect, setSuratPenyelesaianLapanganSelect] = useState("");
   const [suratPenyelesaianLapanganGenerating, setSuratPenyelesaianLapanganGenerating] = useState(false);
   const [suratPenyelesaianLapanganProgressText, setSuratPenyelesaianLapanganProgressText] = useState("");
+  const [suratPenyelesaianLapanganSelectionRows, setSuratPenyelesaianLapanganSelectionRows] = useState([]);
 
   // Lampiran form controls: combined manual select for PML + PPL
   const [lampiranManualSelect, setLampiranManualSelect] = useState("");
+  const [lampiranSelectionRows, setLampiranSelectionRows] = useState([]);
+  const [lampiranBeberapaGenerating, setLampiranBeberapaGenerating] = useState(false);
+  const [lampiranBeberapaProgressText, setLampiranBeberapaProgressText] = useState("");
 
   React.useEffect(() => {
     if (docType.id === "daftar-hadir" && !formData.jamMulai && !formData.jamSelesai) {
@@ -2392,7 +2730,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
 
   const handleSubmit = (e) => {
     e.preventDefault();
-
+    
     if (docType.id === "daftar-hadir") {
       if (!daftarHadirFilterGroup) {
         alert("Pilih kelompok peserta (PML & PPL atau Panitia & Inda) terlebih dahulu.");
@@ -2555,11 +2893,192 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
       return;
     }
 
+    if (docType.id === "gabungan-pembayaran") {
+      e.preventDefault();
+      return;
+    }
+
     onPreview({ ...formData });
   };
 
   const renderFields = () => {
     switch (docType.id) {
+
+      // ── ADMINISTRASI PEMBAYARAN LENGKAP PER PML/PPL ──────────────────────
+      case "gabungan-pembayaran": {
+        const nikLookup = React.useMemo(() => {
+          const map = new Map();
+          for (const p of petugasData || []) {
+            const nama = upperText(p.nama);
+            if (nama && !map.has(nama)) map.set(nama, cleanText(p.nik));
+          }
+          return map;
+        }, [petugasData]);
+
+        const berkasRecords = React.useMemo(() => {
+          if (!gabunganRole) return [];
+          return buildBerkasPembayaranRecords(bappData || [], lampiranData || [], gabunganRole, statusSlsData || []);
+        }, [bappData, lampiranData, gabunganRole, statusSlsData]);
+
+        const berkasOptions = React.useMemo(() => {
+          return berkasRecords.map((record) => ({
+            value: record.identity,
+            label: `${record.displayName || "Tanpa Nama"}${record.email ? ` — ${record.email}` : ""}`,
+            record,
+          }));
+        }, [berkasRecords]);
+
+        const validateTanggal = () => {
+          if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
+          const selectedDate = new Date(formData.tanggal_surat);
+          const minDate = new Date("2026-07-15T00:00:00");
+          const maxDate = new Date("2026-07-31T23:59:59");
+          if (selectedDate < minDate || selectedDate > maxDate) {
+            throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Juli 2026.");
+          }
+        };
+
+        const getTemplateUrl = () => gabunganRole === "PML"
+          ? BERKAS_PEMBAYARAN_PML_TEMPLATE_URL
+          : BERKAS_PEMBAYARAN_PPL_TEMPLATE_URL;
+
+        return (
+          <div className="space-y-5">
+            <div className="rounded-3xl border border-orange-100 bg-orange-50/70 p-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-700">Gabungan Administrasi Pembayaran</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                Pilih PML atau PPL, lalu generate satu berkas pembayaran lengkap per orang. Pilihan tersedia untuk satu nama, beberapa nama melalui Excel, atau semua nama.
+              </p>
+              <p className="mt-3 text-xs font-bold text-slate-500">
+                Template: {gabunganRole === "PML" ? "BERKAS PEMBAYARAN PML.docx" : gabunganRole === "PPL" ? "BERKAS PEMBAYARAN PPL.docx" : "pilih role terlebih dahulu"}
+              </p>
+            </div>
+
+            <div>
+              <p className={labelCls}>Pilih Role</p>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => {
+                  setGabunganRole("PML");
+                  setGabunganManualSelect("");
+                  setGabunganSelectionRows([]);
+                }} className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-black transition ${gabunganRole === "PML" ? "bg-orange-600 text-white" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>
+                  PML
+                </button>
+                <button type="button" onClick={() => {
+                  setGabunganRole("PPL");
+                  setGabunganManualSelect("");
+                  setGabunganSelectionRows([]);
+                }} className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-black transition ${gabunganRole === "PPL" ? "bg-orange-600 text-white" : "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"}`}>
+                  PPL
+                </button>
+              </div>
+            </div>
+
+            {gabunganRole && (
+              <>
+                <div>
+                  <label className={labelCls}>Tanggal Surat</label>
+                  <input
+                    type="date"
+                    min="2026-07-15"
+                    max="2026-07-31"
+                    className={inputCls}
+                    value={formData.tanggal_surat || ""}
+                    onChange={(e) => update("tanggal_surat", e.target.value)}
+                  />
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Rentang tanggal yang diizinkan: 15–31 Juli 2026.</p>
+                </div>
+
+                <div>
+                  <label className={labelCls}>Pilih Sendiri</label>
+                  <select value={gabunganManualSelect} onChange={(e) => setGabunganManualSelect(e.target.value)} className={inputCls}>
+                    <option value="">— Pilih Nama {gabunganRole} —</option>
+                    {berkasOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">
+                    {berkasRecords.length} orang terdeteksi. Filter tabel memakai {statusSlsData.length} baris dari sheet Status SLS.
+                  </p>
+                </div>
+
+                <SelectionUploadPanel
+                  selectionRows={gabunganSelectionRows}
+                  onSelectionLoaded={setGabunganSelectionRows}
+                  onClear={() => setGabunganSelectionRows([])}
+                  hint={`Unggah Excel berisi kolom Nama dan/atau Email untuk memilih beberapa ${gabunganRole}.`}
+                />
+
+                {gabunganGenerating && (
+                  <div className="flex items-center gap-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700">
+                    <LoaderCircle size={18} className="animate-spin" />
+                    <span>{gabunganProgressText || `Sedang membuat berkas pembayaran ${gabunganRole}...`}</span>
+                  </div>
+                )}
+
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <button type="button" onClick={async () => {
+                    try {
+                      validateTanggal();
+                      if (!gabunganManualSelect) throw new Error("Pilih nama terlebih dahulu.");
+                      const chosen = berkasOptions.find((option) => option.value === gabunganManualSelect)?.record;
+                      if (!chosen) throw new Error("Data nama yang dipilih tidak ditemukan.");
+                      setGabunganGenerating(true);
+                      setGabunganProgressText("Membuat satu berkas pembayaran...");
+                      await generateSingleBerkasPembayaran(
+                        getTemplateUrl(), formData, chosen, gabunganRole, nikLookup
+                      );
+                    } catch (err) { alert(err.message || err); }
+                    finally { setGabunganGenerating(false); setGabunganProgressText(""); }
+                  }} disabled={!gabunganManualSelect || berkasRecords.length === 0 || gabunganGenerating}
+                    className="inline-flex items-center justify-center rounded-2xl bg-orange-500 px-5 py-3 text-sm font-black text-white shadow transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-orange-200">
+                    Generate Terpilih
+                  </button>
+
+                  <button type="button" onClick={async () => {
+                    try {
+                      validateTanggal();
+                      if (gabunganSelectionRows.length === 0) throw new Error("Unggah file Excel Nama/Email terlebih dahulu.");
+                      const keySet = buildSelectionKeySet(gabunganSelectionRows);
+                      const matchedRecords = berkasRecords.filter((record) =>
+                        rowMatchesSelection(keySet, record.displayName, record.email)
+                      );
+                      if (matchedRecords.length === 0) throw new Error("Tidak ada data yang cocok dengan file Excel.");
+                      setGabunganGenerating(true);
+                      setGabunganProgressText(`Menyiapkan ${matchedRecords.length} berkas pembayaran...`);
+                      await generateBerkasPembayaran(
+                        getTemplateUrl(), formData, matchedRecords, gabunganRole, nikLookup,
+                        ({ batchIndex, totalBatches }) => setGabunganProgressText(`Membuat batch ${batchIndex} dari ${totalBatches}...`)
+                      );
+                    } catch (err) { alert(err.message || err); }
+                    finally { setGabunganGenerating(false); setGabunganProgressText(""); }
+                  }} disabled={berkasRecords.length === 0 || gabunganGenerating || gabunganSelectionRows.length === 0}
+                    className="inline-flex items-center justify-center rounded-2xl border border-orange-200 bg-white px-5 py-3 text-sm font-black text-orange-700 shadow transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60">
+                    Generate Beberapa
+                  </button>
+
+                  <button type="button" onClick={async () => {
+                    try {
+                      validateTanggal();
+                      if (berkasRecords.length === 0) throw new Error(`Tidak ada data ${gabunganRole}.`);
+                      setGabunganGenerating(true);
+                      setGabunganProgressText("Mempersiapkan semua berkas pembayaran...");
+                      await generateBerkasPembayaran(
+                        getTemplateUrl(), formData, berkasRecords, gabunganRole, nikLookup,
+                        ({ batchIndex, totalBatches }) => setGabunganProgressText(`Membuat batch ${batchIndex} dari ${totalBatches}...`)
+                      );
+                    } catch (err) { alert(err.message || err); }
+                    finally { setGabunganGenerating(false); setGabunganProgressText(""); }
+                  }} disabled={berkasRecords.length === 0 || gabunganGenerating}
+                    className="inline-flex items-center justify-center rounded-2xl border border-orange-200 bg-white px-5 py-3 text-sm font-black text-orange-700 shadow transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60">
+                    Generate Semua
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      }
 
       // ── DAFTAR HADIR ────────────────────────────────────────────────────────
       case "daftar-hadir":
@@ -3143,6 +3662,13 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
                   <p className="mt-1 text-xs font-semibold text-slate-400">Daftar nama diurutkan berdasarkan abjad.</p>
                 </div>
 
+                <SelectionUploadPanel
+                  selectionRows={bappSelectionRows}
+                  onSelectionLoaded={setBappSelectionRows}
+                  onClear={() => setBappSelectionRows([])}
+                  hint="Pastikan file dan isian file benar. Download template"
+                />
+
                 {bappGenerating && (
                   <div className="flex items-center gap-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700">
                     <LoaderCircle size={18} className="animate-spin" />
@@ -3150,7 +3676,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
                   </div>
                 )}
 
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-3">
                   <button type="button" onClick={async () => {
                     try {
                       if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
@@ -3168,6 +3694,28 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
                     finally { setBappGenerating(false); setBappProgressText(""); }
                   }} disabled={!bappManualSelect || filteredBappRows.length === 0 || bappGenerating} className="inline-flex items-center justify-center rounded-2xl bg-orange-500 px-5 py-3 text-sm font-black text-white shadow transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-orange-200">
                     Download Terpilih
+                  </button>
+
+                  <button type="button" onClick={async () => {
+                    try {
+                      if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
+                      const selectedDate = new Date(formData.tanggal_surat);
+                      const minDate = new Date("2026-07-15T00:00:00");
+                      const maxDate = new Date("2026-07-31T23:59:59");
+                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Juli 2026.");
+                      if (bappSelectionRows.length === 0) throw new Error("Unggah file Excel Nama/Email terlebih dahulu.");
+                      const keySet = buildSelectionKeySet(bappSelectionRows);
+                      const matchedRows = filteredBappRows.filter((row) => rowMatchesSelection(keySet, row.nama, row.email));
+                      if (matchedRows.length === 0) throw new Error("Tidak ada data yang cocok dengan file yang diunggah.");
+                      setBappGenerating(true);
+                      setBappProgressText(`Menyiapkan ${matchedRows.length} dokumen terpilih...`);
+                      await generateBapp(bappRole === "PML" ? BAPP_PML_TEMPLATE_URL : BAPP_PPL_TEMPLATE_URL, formData, matchedRows, bappRole, ({ batchIndex, totalBatches }) => {
+                        setBappProgressText(`Membuat batch ${batchIndex} dari ${totalBatches}...`);
+                      });
+                    } catch (err) { alert(err.message || err); }
+                    finally { setBappGenerating(false); setBappProgressText(""); }
+                  }} disabled={filteredBappRows.length === 0 || bappGenerating || bappSelectionRows.length === 0} className="inline-flex items-center justify-center rounded-2xl border border-orange-200 bg-white px-5 py-3 text-sm font-black text-orange-700 shadow transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60">
+                    Download Beberapa
                   </button>
 
                   <button type="button" onClick={async () => {
@@ -3273,6 +3821,13 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
                   <p className="mt-1 text-xs font-semibold text-slate-400">Daftar nama diurutkan berdasarkan abjad.</p>
                 </div>
 
+                <SelectionUploadPanel
+                  selectionRows={bastSelectionRows}
+                  onSelectionLoaded={setBastSelectionRows}
+                  onClear={() => setBastSelectionRows([])}
+                  hint={`Kolom Nama dan/atau Email dicocokkan dengan nama ${isPml ? "Pengawas & Email Pengawas" : "Pencacah & Email Pencacah"}.`}
+                />
+
                 {bastGenerating && (
                   <div className="flex items-center gap-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700">
                     <LoaderCircle size={18} className="animate-spin" />
@@ -3280,7 +3835,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
                   </div>
                 )}
 
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-3">
                   <button type="button" onClick={async () => {
                     try {
                       if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
@@ -3298,6 +3853,28 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
                     finally { setBastGenerating(false); setBastProgressText(""); }
                   }} disabled={!bastManualSelect || filteredBastRows.length === 0 || bastGenerating} className="inline-flex items-center justify-center rounded-2xl bg-orange-500 px-5 py-3 text-sm font-black text-white shadow transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-orange-200">
                     Download Terpilih
+                  </button>
+
+                  <button type="button" onClick={async () => {
+                    try {
+                      if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
+                      const selectedDate = new Date(formData.tanggal_surat);
+                      const minDate = new Date("2026-07-15T00:00:00");
+                      const maxDate = new Date("2026-07-31T23:59:59");
+                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Juli 2026.");
+                      if (bastSelectionRows.length === 0) throw new Error("Unggah file Excel Nama/Email terlebih dahulu.");
+                      const keySet = buildSelectionKeySet(bastSelectionRows);
+                      const matchedRows = filteredBastRows.filter((row) => rowMatchesSelection(keySet, isPml ? row.nama_pml : row.nama_ppl, isPml ? row.email_pengawas : row.email_pencacah));
+                      if (matchedRows.length === 0) throw new Error("Tidak ada data yang cocok dengan file yang diunggah.");
+                      setBastGenerating(true);
+                      setBastProgressText(`Menyiapkan dokumen terpilih dari file...`);
+                      await generateBast(bastRole === "PML" ? BAST_PML_TEMPLATE_URL : BAST_PPL_TEMPLATE_URL, formData, matchedRows, bastRole, nikLookup, ({ batchIndex, totalBatches }) => {
+                        setBastProgressText(`Membuat batch ${batchIndex} dari ${totalBatches}...`);
+                      });
+                    } catch (err) { alert(err.message || err); }
+                    finally { setBastGenerating(false); setBastProgressText(""); }
+                  }} disabled={filteredBastRows.length === 0 || bastGenerating || bastSelectionRows.length === 0} className="inline-flex items-center justify-center rounded-2xl border border-orange-200 bg-white px-5 py-3 text-sm font-black text-orange-700 shadow transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60">
+                    Download Beberapa
                   </button>
 
                   <button type="button" onClick={async () => {
@@ -3371,6 +3948,13 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
               <p className="mt-1 text-xs font-semibold text-slate-400">Daftar nama diurutkan berdasarkan abjad dan memakai email sebagai kunci unik.</p>
             </div>
 
+            <SelectionUploadPanel
+              selectionRows={suratPenyelesaianLapanganSelectionRows}
+              onSelectionLoaded={setSuratPenyelesaianLapanganSelectionRows}
+              onClear={() => setSuratPenyelesaianLapanganSelectionRows([])}
+              hint="Kolom Nama dan/atau Email dicocokkan dengan data PML pada sheet Pembayaran."
+            />
+
             {suratPenyelesaianLapanganGenerating && (
               <div className="flex items-center gap-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700">
                 <LoaderCircle size={18} className="animate-spin" />
@@ -3378,7 +3962,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
               </div>
             )}
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-3">
               <button type="button" onClick={async () => {
                 try {
                   if (!suratPenyelesaianLapanganSelect) throw new Error("Pilih nama terlebih dahulu.");
@@ -3391,6 +3975,23 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
                 finally { setSuratPenyelesaianLapanganGenerating(false); setSuratPenyelesaianLapanganProgressText(""); }
               }} disabled={!suratPenyelesaianLapanganSelect || filteredSuratPenyelesaianLapanganRows.length === 0 || suratPenyelesaianLapanganGenerating} className="inline-flex items-center justify-center rounded-2xl bg-orange-500 px-5 py-3 text-sm font-black text-white shadow transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-orange-200">
                 Download Terpilih
+              </button>
+
+              <button type="button" onClick={async () => {
+                try {
+                  if (suratPenyelesaianLapanganSelectionRows.length === 0) throw new Error("Unggah file Excel Nama/Email terlebih dahulu.");
+                  const keySet = buildSelectionKeySet(suratPenyelesaianLapanganSelectionRows);
+                  const matchedRows = filteredSuratPenyelesaianLapanganRows.filter((row) => rowMatchesSelection(keySet, row.nama, row.email));
+                  if (matchedRows.length === 0) throw new Error("Tidak ada data yang cocok dengan file yang diunggah.");
+                  setSuratPenyelesaianLapanganGenerating(true);
+                  setSuratPenyelesaianLapanganProgressText(`Menyiapkan ${matchedRows.length} dokumen terpilih...`);
+                  await generateSuratPernyataanPenyelesaianLapangan(SURAT_PERNYATAAN_PENYELESAIAN_LAPANGAN_TEMPLATE_URL, matchedRows, ({ batchIndex, totalBatches }) => {
+                    setSuratPenyelesaianLapanganProgressText(`Membuat batch ${batchIndex} dari ${totalBatches}...`);
+                  });
+                } catch (err) { alert(err.message || err); }
+                finally { setSuratPenyelesaianLapanganGenerating(false); setSuratPenyelesaianLapanganProgressText(""); }
+              }} disabled={filteredSuratPenyelesaianLapanganRows.length === 0 || suratPenyelesaianLapanganGenerating || suratPenyelesaianLapanganSelectionRows.length === 0} className="inline-flex items-center justify-center rounded-2xl border border-orange-200 bg-white px-5 py-3 text-sm font-black text-orange-700 shadow transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60">
+                Download Beberapa
               </button>
 
               <button type="button" onClick={async () => {
@@ -3501,6 +4102,58 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
               </div>
             </div>
 
+            {/* Download Beberapa: unggah Excel Nama/Email lalu generate untuk PML dan/atau PPL sekaligus */}
+            <div className="rounded-2xl border border-orange-100 bg-white p-4 space-y-3">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-700">Download Beberapa (dari file Excel Nama/Email)</p>
+              <SelectionUploadPanel
+                selectionRows={lampiranSelectionRows}
+                onSelectionLoaded={setLampiranSelectionRows}
+                onClear={() => setLampiranSelectionRows([])}
+                hint="Silahkan upload file excel sesuai template. Download template disini"
+              />
+
+              {lampiranBeberapaGenerating && (
+                <div className="flex items-center gap-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700">
+                  <LoaderCircle size={18} className="animate-spin" />
+                  <span>{lampiranBeberapaProgressText || "Sedang menyiapkan dokumen..."}</span>
+                </div>
+              )}
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <button type="button" disabled={lampiranSelectionRows.length === 0 || lampiranBeberapaGenerating} onClick={async () => {
+                  try {
+                    if (!xlsxLoaded) throw new Error("Data XLSX/Google Sheet belum dimuat.");
+                    if (lampiranSelectionRows.length === 0) throw new Error("Unggah file Excel Nama/Email terlebih dahulu.");
+                    const keySet = buildSelectionKeySet(lampiranSelectionRows);
+                    const matchedRows = rows.filter((r) => rowMatchesSelection(keySet, r.nama_pml, r.email_pengawas));
+                    if (matchedRows.length === 0) throw new Error("Tidak ada PML yang cocok dengan file yang diunggah.");
+                    setLampiranBeberapaGenerating(true);
+                    setLampiranBeberapaProgressText("Menyiapkan Lampiran PML terpilih...");
+                    await generateLampiran(LAMPIRAN_PML_TEMPLATE_URL, {}, matchedRows, "PML");
+                  } catch (err) { alert(err.message || err); }
+                  finally { setLampiranBeberapaGenerating(false); setLampiranBeberapaProgressText(""); }
+                }} className="inline-flex items-center justify-center rounded-2xl bg-orange-500 px-5 py-3 text-sm font-black text-white shadow transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-orange-200">
+                  Download Beberapa PML
+                </button>
+
+                <button type="button" disabled={lampiranSelectionRows.length === 0 || lampiranBeberapaGenerating} onClick={async () => {
+                  try {
+                    if (!xlsxLoaded) throw new Error("Data XLSX/Google Sheet belum dimuat.");
+                    if (lampiranSelectionRows.length === 0) throw new Error("Unggah file Excel Nama/Email terlebih dahulu.");
+                    const keySet = buildSelectionKeySet(lampiranSelectionRows);
+                    const matchedRows = rows.filter((r) => rowMatchesSelection(keySet, r.nama_ppl, r.email_pencacah));
+                    if (matchedRows.length === 0) throw new Error("Tidak ada PPL yang cocok dengan file yang diunggah.");
+                    setLampiranBeberapaGenerating(true);
+                    setLampiranBeberapaProgressText("Menyiapkan Lampiran PPL terpilih...");
+                    await generateLampiran(LAMPIRAN_PPL_TEMPLATE_URL, {}, matchedRows, "PPL");
+                  } catch (err) { alert(err.message || err); }
+                  finally { setLampiranBeberapaGenerating(false); setLampiranBeberapaProgressText(""); }
+                }} className="inline-flex items-center justify-center rounded-2xl border border-orange-200 bg-white px-5 py-3 text-sm font-black text-orange-700 shadow transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60">
+                  Download Beberapa PPL
+                </button>
+              </div>
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-3xl border border-orange-100 bg-white p-5 shadow-sm">
                 <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100 text-orange-600">
@@ -3546,7 +4199,7 @@ function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampi
   return (
     <form onSubmit={handleSubmit} className="space-y-5 rounded-[2.5rem] border border-orange-100 bg-white/80 p-6 shadow-xl shadow-orange-900/5 backdrop-blur md:p-10">
       {renderFields()}
-      {docType.id !== "lampiran" && docType.id !== "bapp" && docType.id !== "bast" && docType.id !== "surat-pernyataan-penyelesaian-lapangan" && (
+      {docType.id !== "lampiran" && docType.id !== "bapp" && docType.id !== "bast" && docType.id !== "surat-pernyataan-penyelesaian-lapangan" && docType.id !== "gabungan-pembayaran" && (
         <div className="border-t border-orange-100 pt-5">
           <button type="submit" className="group inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-7 py-4 font-black text-white shadow-2xl shadow-orange-500/25 transition hover:-translate-y-1 hover:bg-orange-600">
             Pratinjau Dokumen <ChevronRight className="transition group-hover:translate-x-1" size={18} />
@@ -3880,6 +4533,725 @@ async function generateBast(templateUrl, formValues, lampiranRows, jenis, nikLoo
     }
     const batchSuffix = totalBatches > 1 ? ` - Bagian ${batchIndex + 1} dari ${totalBatches}` : "";
     await downloadMultipleAsZip(zipFiles, `BAST ${jenis} ${formValues?.tanggal_surat || "SE2026"}${batchSuffix}.zip`);
+  }
+}
+
+// ─── BERKAS PEMBAYARAN PML/PPL ───────────────────────────────────────────────
+// Satu record menyatukan identitas dari sheet Pembayaran dengan semua baris
+// wilayah/SLS milik orang yang sama dari sheet Lampiran.
+function getBerkasIdentity(nama, email) {
+  const emailClean = cleanText(email);
+  if (emailClean) return `EMAIL::${upperText(emailClean)}`;
+  return `NAME::${upperText(nama)}`;
+}
+
+function buildBerkasPembayaranRecords(bappRows = [], lampiranRows = [], role = "PML", statusSlsRows = []) {
+  const isPml = upperText(role) === "PML";
+  const records = [];
+  const byEmail = new Map();
+  const byName = new Map();
+  const ambiguousNames = new Set();
+
+  const registerName = (record) => {
+    const nameKey = upperText(record.displayName);
+    if (!nameKey) return;
+    if (byName.has(nameKey) && byName.get(nameKey) !== record) {
+      ambiguousNames.add(nameKey);
+      byName.delete(nameKey);
+      return;
+    }
+    if (!ambiguousNames.has(nameKey)) byName.set(nameKey, record);
+  };
+
+  const ensureRecord = (displayName, email, bappRow = null) => {
+    const identity = getBerkasIdentity(displayName, email);
+    let record = records.find((item) => item.identity === identity);
+    if (record) {
+      if (!record.bappRow && bappRow) record.bappRow = bappRow;
+      return record;
+    }
+
+    record = {
+      identity,
+      displayName: displayName || email || "Tanpa Nama",
+      email,
+      bappRow,
+      lampiranRows: [],
+      // Baris sheet Pembayaran yang terkait dengan record ini. Untuk PML,
+      // isinya adalah baris-baris PPL di bawah pengawas tersebut. Untuk PPL,
+      // isinya adalah baris Pembayaran milik PPL itu sendiri.
+      pembayaranRows: [],
+      // Baris dari sheet Status SLS milik PML/PPL ini. Dipakai untuk menyaring
+      // baris Lampiran sebelum tabel gabungan dibentuk.
+      statusSlsRows: [],
+    };
+    records.push(record);
+    if (email) byEmail.set(upperText(email), record);
+    registerName(record);
+    return record;
+  };
+
+  // Record utama tetap dibuat berdasarkan role yang dipilih.
+  const roleBappRows = (bappRows || []).filter((row) => isBappRowForRole(row, role));
+  for (const row of roleBappRows) {
+    const displayName = cleanText(row?.nama);
+    const email = cleanText(row?.email);
+    if (!displayName && !email) continue;
+    ensureRecord(displayName, email, row);
+  }
+
+  // Data Lampiran masih dipertahankan untuk bagian BAST/lampiran dokumen gabungan.
+  for (const row of lampiranRows || []) {
+    const displayName = cleanText(isPml ? row?.nama_pml : row?.nama_ppl);
+    const email = cleanText(isPml ? row?.email_pengawas : row?.email_pencacah);
+    if (!displayName && !email) continue;
+
+    const emailKey = upperText(email);
+    const nameKey = upperText(displayName);
+    let record = emailKey ? byEmail.get(emailKey) : null;
+    if (!record && nameKey && !ambiguousNames.has(nameKey)) record = byName.get(nameKey);
+    if (!record) record = ensureRecord(displayName, email, null);
+
+    record.lampiranRows.push(row);
+    if (!record.email && email) record.email = email;
+    if ((!record.displayName || record.displayName === "Tanpa Nama") && displayName) record.displayName = displayName;
+  }
+
+  // Hubungkan metrik progres dari sheet Pembayaran ke record.
+  //
+  // FIX v5: jangan bergantung hanya pada kolom Email Pengawas/Nama Pengawas di
+  // sheet Pembayaran. Pada banyak file, kolom relasi itu kosong atau berisi #N/A,
+  // sehingga pembayaranRows menjadi kosong dan tag {prelist_total}, {realisasi},
+  // {persentase}, serta {average_persentase} ikut kosong.
+  //
+  // Sumber relasi yang paling stabil adalah daftar PPL yang SUDAH menempel pada
+  // masing-masing PML di sheet Lampiran. Jadi setiap PPL di Lampiran dicari langsung
+  // ke sheet Pembayaran lewat Email Pencacah, lalu fallback ke Nama Pencacah.
+  const pplPaymentRows = (bappRows || []).filter((row) => isBappRowForRole(row, "PPL"));
+  const paymentByPplEmail = new Map();
+  const paymentByPplName = new Map();
+  const ambiguousPaymentNames = new Set();
+
+  for (const row of pplPaymentRows) {
+    const pplEmail = upperText(row?.email_ppl || row?.email || "");
+    const pplName = upperText(row?.nama_ppl || row?.nama || "");
+    if (pplEmail && !paymentByPplEmail.has(pplEmail)) paymentByPplEmail.set(pplEmail, row);
+    if (pplName) {
+      if (paymentByPplName.has(pplName) && paymentByPplName.get(pplName) !== row) {
+        ambiguousPaymentNames.add(pplName);
+        paymentByPplName.delete(pplName);
+      } else if (!ambiguousPaymentNames.has(pplName)) {
+        paymentByPplName.set(pplName, row);
+      }
+    }
+  }
+
+  const addPaymentRow = (record, row) => {
+    if (!record || !row) return;
+    const nama = cleanText(row?.nama_ppl || row?.nama);
+    const email = cleanText(row?.email_ppl || row?.email);
+    if (!nama && !email) return;
+    const paymentIdentity = getBerkasIdentity(nama, email);
+    const alreadyAdded = record.pembayaranRows.some((item) =>
+      getBerkasIdentity(
+        cleanText(item?.nama_ppl || item?.nama),
+        cleanText(item?.email_ppl || item?.email)
+      ) === paymentIdentity
+    );
+    if (!alreadyAdded) record.pembayaranRows.push(row);
+  };
+
+  // Jalur utama: Lampiran -> identitas PPL -> baris Pembayaran.
+  for (const record of records) {
+    if (!isPml) {
+      addPaymentRow(record, record?.bappRow);
+      continue;
+    }
+
+    for (const lampiranRow of record.lampiranRows || []) {
+      const pplEmail = upperText(lampiranRow?.email_pencacah || lampiranRow?.email_ppl || "");
+      const pplName = upperText(lampiranRow?.nama_ppl || "");
+      let paymentRow = pplEmail ? paymentByPplEmail.get(pplEmail) : null;
+      if (!paymentRow && pplName && !ambiguousPaymentNames.has(pplName)) {
+        paymentRow = paymentByPplName.get(pplName) || null;
+      }
+      addPaymentRow(record, paymentRow);
+    }
+  }
+
+  // Jalur cadangan: tetap manfaatkan kolom relasi Pengawas bila tersedia.
+  // Ini berguna untuk PPL yang ada di Pembayaran tetapi belum tercantum di Lampiran.
+  for (const row of pplPaymentRows) {
+    const ownerName = cleanText(isPml ? (row?.nama_pengawas || row?.nama_pml) : row?.nama);
+    const ownerEmail = cleanText(isPml ? (row?.email_pengawas || row?.email_pml) : row?.email);
+    const emailKey = upperText(ownerEmail);
+    const nameKey = upperText(ownerName);
+
+    let record = emailKey ? byEmail.get(emailKey) : null;
+    if (!record && nameKey && !ambiguousNames.has(nameKey)) record = byName.get(nameKey);
+    if (!record) continue;
+    addPaymentRow(record, row);
+  }
+
+  // Kaitkan sheet Status SLS ke pemilik dokumen. Untuk role PML, pemiliknya
+  // ditentukan dari Nama/Email PML; untuk role PPL dari Nama/Email PPL.
+  for (const statusRow of statusSlsRows || []) {
+    const ownerName = cleanText(isPml ? statusRow?.nama_pml : statusRow?.nama_ppl);
+    const ownerEmail = cleanText(isPml ? statusRow?.email_pml : statusRow?.email_ppl);
+    const emailKey = upperText(ownerEmail);
+    const nameKey = upperText(ownerName);
+
+    let record = emailKey ? byEmail.get(emailKey) : null;
+    if (!record && nameKey && !ambiguousNames.has(nameKey)) record = byName.get(nameKey);
+
+    // Fallback paling kuat untuk PML: cari record yang Lampirannya memuat PPL
+    // yang sama dengan baris Status SLS. Ini menolong ketika Nama/Email PML pada
+    // sheet Status SLS kosong atau penulisannya berbeda.
+    if (!record) {
+      const statusPplEmail = upperText(statusRow?.email_ppl || "");
+      const statusPplName = upperText(statusRow?.nama_ppl || "");
+      record = records.find((candidate) =>
+        (candidate?.lampiranRows || []).some((lampiranRow) => {
+          const lampiranPplEmail = upperText(lampiranRow?.email_pencacah || lampiranRow?.email_ppl || "");
+          const lampiranPplName = upperText(lampiranRow?.nama_ppl || "");
+          return (statusPplEmail && lampiranPplEmail === statusPplEmail) ||
+            (statusPplName && lampiranPplName === statusPplName);
+        })
+      ) || null;
+    }
+
+    if (!record) continue;
+    record.statusSlsRows.push(statusRow);
+  }
+
+  return records.sort((a, b) =>
+    cleanText(a.displayName).localeCompare(cleanText(b.displayName), "id-ID", { sensitivity: "base" })
+  );
+}
+
+function pembayaranPersonIdentity(row = {}) {
+  return getBerkasIdentity(
+    cleanText(row?.nama_ppl || row?.nama),
+    cleanText(row?.email_ppl || row?.email)
+  );
+}
+
+function findPembayaranRowForLampiran(groupedLampiranRow = {}, pembayaranRows = []) {
+  const emailPpl = upperText(groupedLampiranRow?.email_pencacah || groupedLampiranRow?.email_ppl || "");
+  const namaPpl = upperText(groupedLampiranRow?.nama_ppl || "");
+
+  if (emailPpl) {
+    const byEmail = (pembayaranRows || []).find((row) =>
+      upperText(row?.email_ppl || row?.email || "") === emailPpl
+    );
+    if (byEmail) return byEmail;
+  }
+
+  if (namaPpl) {
+    return (pembayaranRows || []).find((row) =>
+      upperText(row?.nama_ppl || row?.nama || "") === namaPpl
+    ) || null;
+  }
+
+  return null;
+}
+
+function parsePercentageNumber(value) {
+  let text = cleanText(value).replace(/%/g, "").replace(/\s+/g, "");
+  if (!text || /^#(?:N\/A|VALUE!|REF!|DIV\/0!|NAME\?|NUM!|NULL!)$/i.test(text)) return null;
+
+  // Toleran terhadap format Indonesia (47,69) maupun format spreadsheet (47.69).
+  if (text.includes(",") && text.includes(".")) {
+    if (text.lastIndexOf(",") > text.lastIndexOf(".")) {
+      text = text.replace(/\./g, "").replace(",", ".");
+    } else {
+      text = text.replace(/,/g, "");
+    }
+  } else if (text.includes(",")) {
+    text = text.replace(",", ".");
+  }
+
+  const parsed = Number(text.replace(/[^0-9.+-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatPercentageNumber(value, maximumFractionDigits = 2) {
+  if (!Number.isFinite(value)) return "";
+  return value.toLocaleString("id-ID", {
+    minimumFractionDigits: maximumFractionDigits,
+    maximumFractionDigits,
+  });
+}
+
+function calculateAveragePersentase(pembayaranRows = []) {
+  const uniqueRows = new Map();
+  for (const row of pembayaranRows || []) {
+    const key = pembayaranPersonIdentity(row);
+    if (!uniqueRows.has(key)) uniqueRows.set(key, row);
+  }
+
+  const values = [...uniqueRows.values()]
+    .map((row) => parsePercentageNumber(row?.persentase_pendataan || row?.persentase_prelist))
+    .filter((value) => value != null);
+
+  if (values.length === 0) return { raw: null, formatted: "", count: 0 };
+  const raw = values.reduce((sum, value) => sum + value, 0) / values.length;
+  return { raw, formatted: formatPercentageNumber(raw, 2), count: values.length };
+}
+
+function buildLampiranStatusSlsCode(row = {}) {
+  // Sheet Lampiran menyimpan kode SLS sebagai kdsls (4 digit) + kdsubsls (2 digit).
+  // Jangan memakai kdsubslspanjang karena kolom itu dapat memuat kode wilayah panjang
+  // dan enam digit terakhirnya tidak selalu identik dengan Kode SLS pada sheet Status SLS.
+  const direct = normalizeStatusSlsCode(row?.kode_sls || "", 6);
+  if (direct) return direct;
+
+  const kdsls = normalizeStatusSlsCode(row?.kdsls || "", 4);
+  const kdsubsls = normalizeStatusSlsCode(row?.kdsubsls || "", 2);
+  return kdsls ? `${kdsls}${kdsubsls || "00"}` : "";
+}
+
+function statusSlsRowsHaveUsableFilter(statusSlsRows = []) {
+  return (statusSlsRows || []).some((row) =>
+    cleanText(row?.kode_sls) || cleanText(row?.status) || cleanText(row?.status_raw)
+  );
+}
+
+function findStatusSlsRowForLampiran(lampiranRow = {}, statusSlsRows = []) {
+  const kodeKec = normalizeStatusSlsCode(lampiranRow?.kdkec || "", 3);
+  const kodeDesa = normalizeStatusSlsCode(lampiranRow?.kddesa || "", 3);
+  const kodeSls = buildLampiranStatusSlsCode(lampiranRow);
+  const emailPpl = upperText(lampiranRow?.email_pencacah || lampiranRow?.email_ppl || "");
+  const namaPpl = upperText(lampiranRow?.nama_ppl || "");
+  const emailPml = upperText(lampiranRow?.email_pengawas || lampiranRow?.email_pml || "");
+  const namaPml = upperText(lampiranRow?.nama_pml || "");
+
+  const sameCodes = (row) => {
+    const rowKec = normalizeStatusSlsCode(row?.kdkec || "", 3);
+    const rowDesa = normalizeStatusSlsCode(row?.kddesa || "", 3);
+    const rowSls = normalizeStatusSlsCode(row?.kode_sls || "", 6);
+    return (!kodeKec || rowKec === kodeKec) &&
+      (!kodeDesa || rowDesa === kodeDesa) &&
+      (!kodeSls || rowSls === kodeSls);
+  };
+
+  const candidates = (statusSlsRows || []).filter(sameCodes);
+  if (candidates.length === 0) return null;
+
+  if (emailPpl) {
+    const match = candidates.find((row) => upperText(row?.email_ppl || "") === emailPpl);
+    if (match) return match;
+  }
+  if (namaPpl) {
+    const match = candidates.find((row) => upperText(row?.nama_ppl || "") === namaPpl);
+    if (match) return match;
+  }
+  if (emailPml) {
+    const match = candidates.find((row) => upperText(row?.email_pml || "") === emailPml);
+    if (match) return match;
+  }
+  if (namaPml) {
+    const match = candidates.find((row) => upperText(row?.nama_pml || "") === namaPml);
+    if (match) return match;
+  }
+
+  // Fallback berdasarkan kode hanya boleh dipakai bila hasilnya tunggal, agar SLS
+  // dengan kode sama milik petugas berbeda tidak salah ditempelkan.
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function filterLampiranRowsByStatusSls(lampiranRows = [], statusSlsRows = []) {
+  if (!statusSlsRowsHaveUsableFilter(statusSlsRows)) return [...(lampiranRows || [])];
+
+  return (lampiranRows || [])
+    .map((row) => {
+      const statusRow = findStatusSlsRowForLampiran(row, statusSlsRows);
+      if (!statusRow || !isAllowedStatusSls(statusRow?.status || statusRow?.status_raw)) return null;
+      return {
+        ...row,
+        status_sls: normalizeStatusSlsLabel(statusRow?.status || statusRow?.status_raw),
+        status_sls_raw: cleanText(statusRow?.status_raw || statusRow?.status || ""),
+        status_jumlah_prelist: cleanText(statusRow?.jumlah_prelist || ""),
+        status_jumlah_realisasi: cleanText(statusRow?.jumlah_realisasi || ""),
+        status_persentase: cleanText(statusRow?.persentase || ""),
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildBerkasLampiranTableRows(lampiranRows = [], role = "PML", pembayaranRows = [], statusSlsRows = []) {
+  if (!Array.isArray(lampiranRows) || lampiranRows.length === 0) return [];
+
+  // Bila sheet Status SLS tersedia, hanya baris dengan status Selesai atau
+  // Sedang Dikerjakan yang masuk ke pengelompokan dan perhitungan {jumlah}.
+  const filteredLampiranRows = filterLampiranRowsByStatusSls(lampiranRows, statusSlsRows);
+  const grouped = groupLampiranRows(filteredLampiranRows, role);
+
+  return grouped.map((row, index) => {
+    const jumlah = Number(row?.jumlah || 0);
+    const jumlah40 = Math.ceil(jumlah * 0.4);
+    const jumlah60 = jumlah - jumlah40;
+    const namaPml = cleanText(row?.nama_pml || "");
+    const namaPpl = cleanText(row?.nama_ppl || "");
+
+    // Setiap baris tabel PML mewakili PPL, sehingga nomor generik pada baris
+    // diarahkan ke kontrak PPL. Nomor kontrak PML tetap tersedia lewat tag khusus.
+    const nomorKontrakPml = cleanText(row?.nomor_kontrak_pml || "");
+    const nomorKontrakPpl = cleanText(row?.nomor_kontrak_ppl || "");
+    const nomorKontrakBaris = nomorKontrakPpl;
+
+    const pembayaranRow = findPembayaranRowForLampiran(row, pembayaranRows);
+    const prelistTotal = cleanText(pembayaranRow?.prelist_total || pembayaranRow?.target_prelist || "");
+    const realisasi = cleanText(pembayaranRow?.realisasi_total || pembayaranRow?.realisasi_hasil_pendataan || "");
+    const persentaseRaw = cleanText(pembayaranRow?.persentase_pendataan || pembayaranRow?.persentase_prelist || "");
+    const persentaseNumber = parsePercentageNumber(persentaseRaw);
+    // Semua tag tampilan persentase memakai dua angka di belakang koma.
+    // Nilai asli tetap tersedia melalui {persentase_raw}.
+    const persentaseFormat = persentaseNumber == null
+      ? persentaseRaw
+      : formatPercentageNumber(persentaseNumber, 2);
+    const persentase = persentaseFormat;
+
+    return {
+      no: index + 1,
+      nama: namaPpl,
+      nama_petugas: namaPpl,
+      nama_pml: namaPml,
+      nama_pengawas: namaPml,
+      nama_ppl: namaPpl,
+      email_pengawas: cleanText(row?.email_pengawas || ""),
+      email_pml: cleanText(row?.email_pengawas || ""),
+      email_pencacah: cleanText(row?.email_pencacah || ""),
+      email_ppl: cleanText(row?.email_pencacah || ""),
+      email: cleanText(row?.email_pencacah || ""),
+
+      kdprov: cleanText(row?.kdprov || ""),
+      kdkab: cleanText(row?.kdkab || ""),
+      kdkec: cleanText(row?.kdkec || ""),
+      kddesa: cleanText(row?.kddesa || ""),
+      nmprov: cleanText(row?.nmprov || ""),
+      nmkab: cleanText(row?.nmkab || ""),
+      kecamatan: formatKodeNama(row?.kdkec, row?.kecamatan),
+      kelurahan: formatKodeNama(row?.kddesa, row?.kelurahan),
+
+      jumlah,
+      total_jumlah: jumlah,
+      jumlah_40: jumlah40,
+      jumlah_60: jumlah60,
+      sls_total: jumlah,
+      sls_40: jumlah40,
+      sls_60: jumlah60,
+
+      nomor_spk: nomorKontrakBaris,
+      nomor_kontrak: nomorKontrakBaris,
+      nomor_kontrak_pml: nomorKontrakPml,
+      nomor_kontrak_ppl: nomorKontrakPpl,
+
+      // Struktur/identitas tabel tetap dari sheet Lampiran. Tiga metrik berikut
+      // diambil dari baris PPL yang cocok pada sheet Pembayaran.
+      prelist_total: prelistTotal,
+      target_prelist: prelistTotal,
+      realisasi,
+      realisasi_total: realisasi,
+      realisasi_hasil_pendataan: realisasi,
+      persentase,
+      persentase_pendataan: persentase,
+      persentase_prelist: persentase,
+      persentase_raw: persentaseRaw,
+      persentase_format: persentaseFormat,
+
+      // Ringkasan status SLS yang lolos filter untuk baris kelompok ini.
+      // Karena satu baris tabel dapat berisi beberapa SLS, status digabung unik.
+      status_sls: (() => {
+        const statuses = filteredLampiranRows
+          .filter((item) =>
+            upperText(item?.nama_ppl || "") === upperText(row?.nama_ppl || "") &&
+            normalizeStatusSlsCode(item?.kdkec || "", 3) === normalizeStatusSlsCode(row?.kdkec || "", 3) &&
+            normalizeStatusSlsCode(item?.kddesa || "", 3) === normalizeStatusSlsCode(row?.kddesa || "", 3)
+          )
+          .map((item) => normalizeStatusSlsLabel(item?.status_sls || ""))
+          .filter(Boolean);
+        return [...new Set(statuses)].join(" & ");
+      })(),
+
+      // Alias lama tetap disediakan agar template sebelumnya tidak rusak.
+      sls_ongoing: "",
+      sls_selesai_sedang_dikerjakan: "",
+      persentase_sls: "",
+      tanggal_screenshot: "",
+      flag: "",
+    };
+  });
+}
+
+function buildPembayaranTableRow(row = {}, index = 0) {
+  const jabatan = upperText(row?.jabatan || row?.jabatan_raw || "");
+  const namaPpl = cleanText(row?.nama_ppl || (/PPL|PENCACAH/.test(jabatan) ? row?.nama : ""));
+  const namaPml = cleanText(row?.nama_pengawas || row?.nama_pml || (/PML|PENGAWAS/.test(jabatan) ? row?.nama : ""));
+  const targetPrelist = cleanText(row?.target_prelist || row?.prelist_total || "");
+  const realisasiHasil = cleanText(row?.realisasi_hasil_pendataan || row?.realisasi_total || "");
+  const slsOngoing = cleanText(row?.sls_ongoing || row?.sls_selesai_sedang_dikerjakan || "");
+  const persentasePrelist = cleanText(row?.persentase_prelist || row?.persentase_pendataan || "");
+  const nomorSpk = cleanText(row?.nomor_spk || row?.nomor_kontrak || "");
+
+  return {
+    no: index + 1,
+    nama: namaPpl || cleanText(row?.nama || ""),
+    nama_petugas: namaPpl || cleanText(row?.nama || ""),
+    nama_ppl: namaPpl,
+    email_ppl: cleanText(row?.email_ppl || row?.email || ""),
+    email: cleanText(row?.email || row?.email_ppl || ""),
+    nik: cleanText(row?.nik || ""),
+    jabatan: cleanText(row?.jabatan || row?.jabatan_raw || ""),
+
+    nama_pml: namaPml,
+    nama_pengawas: namaPml,
+    email_pengawas: cleanText(row?.email_pengawas || row?.email_pml || ""),
+
+    nomor_spk: nomorSpk,
+    nomor_kontrak: nomorSpk,
+    kecamatan: cleanText(row?.kecamatan || row?.wilayah || ""),
+    sls_total: cleanText(row?.sls_total || ""),
+    sls_40: cleanText(row?.sls_40 || ""),
+    sls_60: cleanText(row?.sls_60 || ""),
+    sls_ongoing: slsOngoing,
+    sls_selesai_sedang_dikerjakan: slsOngoing,
+    persentase_sls: cleanText(row?.persentase_sls || ""),
+    tanggal_screenshot: cleanText(row?.tanggal_screenshot || ""),
+
+    target_prelist: targetPrelist,
+    prelist_total: targetPrelist,
+    realisasi_hasil_pendataan: realisasiHasil,
+    realisasi_total: realisasiHasil,
+    persentase_prelist: persentasePrelist,
+    persentase_pendataan: persentasePrelist,
+    flag: cleanText(row?.flag || ""),
+  };
+}
+
+function prefixTemplateData(prefix, data = {}) {
+  const prefixed = {};
+  for (const [key, value] of Object.entries(data || {})) {
+    prefixed[`${prefix}_${key}`] = value;
+  }
+  return prefixed;
+}
+
+function buildBerkasPembayaranTemplateData(formValues, record, role, nikLookup) {
+  const isPml = upperText(role) === "PML";
+  const lampiranRows = Array.isArray(record?.lampiranRows) ? record.lampiranRows : [];
+  const pembayaranRows = Array.isArray(record?.pembayaranRows) ? record.pembayaranRows : [];
+  const statusSlsRows = Array.isArray(record?.statusSlsRows) ? record.statusSlsRows : [];
+  const firstLampiran = lampiranRows[0] || {};
+  const displayName = cleanText(
+    record?.displayName || record?.bappRow?.nama || (isPml ? firstLampiran?.nama_pml : firstLampiran?.nama_ppl)
+  );
+  const email = cleanText(
+    record?.email || record?.bappRow?.email || (isPml ? firstLampiran?.email_pengawas : firstLampiran?.email_pencacah)
+  );
+  const nomorKontrakLampiran = cleanText(
+    isPml ? firstLampiran?.nomor_kontrak_pml : firstLampiran?.nomor_kontrak_ppl
+  );
+  // Isi tabel mengikuti sheet Lampiran, memakai pengelompokan yang sama dengan
+  // dokumen Lampiran/BAST terpisah. Sheet Pembayaran tetap dipakai untuk bagian BAPP.
+  const lampiranTableRows = buildBerkasLampiranTableRows(lampiranRows, role, pembayaranRows, statusSlsRows);
+  // Hitung rata-rata dari baris yang benar-benar tampil pada tabel, bukan dari
+  // seluruh kandidat Pembayaran. Dengan begitu denominator persis sama dengan
+  // jumlah PPL yang tampil dan baris ganda Lampiran tidak menggandakan bobot.
+  const averagePersentase = calculateAveragePersentase(lampiranTableRows);
+
+  const bappRow = record?.bappRow || {
+    nama: displayName,
+    email,
+    jabatan: role,
+    jabatan_raw: role,
+    nik: nikLookup?.get(upperText(displayName)) || "",
+    nomor_spk: nomorKontrakLampiran,
+    nomor_kontrak: nomorKontrakLampiran,
+  };
+
+  const syntheticLampiranRow = {
+    ...firstLampiran,
+    nama_pml: isPml ? displayName : cleanText(firstLampiran?.nama_pml),
+    nama_ppl: isPml ? cleanText(firstLampiran?.nama_ppl) : displayName,
+    email_pengawas: isPml ? email : cleanText(firstLampiran?.email_pengawas),
+    email_pencacah: isPml ? cleanText(firstLampiran?.email_pencacah) : email,
+    nomor_kontrak_pml: isPml ? cleanText(bappRow?.nomor_spk || bappRow?.nomor_kontrak || nomorKontrakLampiran) : cleanText(firstLampiran?.nomor_kontrak_pml),
+    nomor_kontrak_ppl: isPml ? cleanText(firstLampiran?.nomor_kontrak_ppl) : cleanText(bappRow?.nomor_spk || bappRow?.nomor_kontrak || nomorKontrakLampiran),
+  };
+
+  const rowsForBast = lampiranRows.length > 0 ? lampiranRows : [syntheticLampiranRow];
+  const bappRaw = buildBappTemplateData(formValues || {}, bappRow, role);
+  const bastRaw = buildBastTemplateData(formValues || {}, rowsForBast, role, nikLookup);
+  const nik = cleanText(bappRaw.nik || bastRaw.nik || nikLookup?.get(upperText(displayName)) || "");
+  const nomorKontrak = cleanText(bappRaw.nomor_kontrak || bastRaw.nomor_perjanjian || nomorKontrakLampiran);
+  const bapp = {
+    ...bappRaw,
+    nama: displayName,
+    nama_peserta: displayName,
+    nama_petugas: displayName,
+    email,
+    nik,
+    nomor_kontrak: nomorKontrak,
+    nomor_prefix: extractNomorPrefix(nomorKontrak),
+  };
+  const bast = {
+    ...bastRaw,
+    nama: displayName,
+    nik,
+    nomor_perjanjian: bastRaw.nomor_perjanjian || nomorKontrak,
+  };
+  const suratPernyataan = {
+    nomor_prefix: extractNomorPrefix(nomorKontrak),
+    nama_petugas: displayName,
+    nama: displayName,
+    nik,
+    nomor_spk: nomorKontrak,
+    nomor_kontrak: nomorKontrak,
+  };
+  const pembayaranRingkasan = buildPembayaranTableRow(bappRow, 0);
+  const firstLampiranTableRow = lampiranTableRows[0] || {};
+
+  // Variabel tanpa prefix dipertahankan untuk kompatibilitas dengan template lama.
+  // Variabel berprefix memberi ruang bagi template gabungan saat ada nama tag yang
+  // bentrok, misalnya {bapp_nomor_surat} dan {bast_nomor_surat}.
+  return {
+    ...bapp,
+    ...bast,
+    ...suratPernyataan,
+    ...prefixTemplateData("bapp", bapp),
+    ...prefixTemplateData("bast", bast),
+    ...prefixTemplateData("surat_pernyataan", suratPernyataan),
+    role,
+    jenis: role,
+    jenis_petugas: role,
+    nama: displayName,
+    nama_petugas: displayName,
+    nama_pml: isPml ? displayName : cleanText(pembayaranRingkasan.nama_pml || firstLampiran?.nama_pml || ""),
+    nama_pengawas: isPml ? displayName : cleanText(pembayaranRingkasan.nama_pengawas || firstLampiran?.nama_pml || ""),
+    email_pengawas: isPml ? email : cleanText(pembayaranRingkasan.email_pengawas || firstLampiran?.email_pengawas || ""),
+    nama_ppl: isPml ? cleanText(firstLampiranTableRow.nama_ppl || firstLampiran?.nama_ppl || "") : displayName,
+    email,
+    nik,
+    nomor_spk: cleanText(pembayaranRingkasan.nomor_spk || nomorKontrak),
+    nomor_kontrak: nomorKontrak,
+    nomor_perjanjian: bast.nomor_perjanjian || nomorKontrak,
+    nomor_surat: bast.nomor_surat || bapp.nomor_surat || "",
+    nomor_prefix: extractNomorPrefix(nomorKontrak),
+
+    // Ringkasan PML/PPL langsung dari kolom sheet Pembayaran.
+    sls_total: pembayaranRingkasan.sls_total,
+    sls_40: pembayaranRingkasan.sls_40,
+    sls_60: pembayaranRingkasan.sls_60,
+    sls_ongoing: pembayaranRingkasan.sls_ongoing,
+    sls_selesai_sedang_dikerjakan: pembayaranRingkasan.sls_ongoing,
+    persentase_sls: pembayaranRingkasan.persentase_sls,
+    tanggal_screenshot: pembayaranRingkasan.tanggal_screenshot,
+    target_prelist: pembayaranRingkasan.target_prelist,
+    prelist_total: pembayaranRingkasan.prelist_total,
+    realisasi_hasil_pendataan: pembayaranRingkasan.realisasi_hasil_pendataan,
+    realisasi_total: pembayaranRingkasan.realisasi_total,
+    persentase_prelist: pembayaranRingkasan.persentase_prelist,
+    persentase_pendataan: pembayaranRingkasan.persentase_pendataan,
+    flag: pembayaranRingkasan.flag,
+    kecamatan: pembayaranRingkasan.kecamatan,
+
+    // Rata-rata aritmetika Persentase Pendataan seluruh PPL yang masuk ke tabel.
+    // Setiap PPL dihitung sekali walaupun memiliki beberapa baris wilayah di Lampiran.
+    average_persentase: averagePersentase.formatted,
+    rata_rata_persentase: averagePersentase.formatted,
+    average_persentase_raw: averagePersentase.raw == null ? "" : averagePersentase.raw,
+    jumlah_persentase_dihitung: averagePersentase.count,
+
+    // Diagnostik/filter Status SLS.
+    status_filter_aktif: statusSlsRowsHaveUsableFilter(statusSlsRows),
+    jumlah_status_sls_sumber: statusSlsRows.length,
+    jumlah_baris_lampiran_sebelum_filter: lampiranRows.length,
+    jumlah_baris_tabel_setelah_filter: lampiranTableRows.length,
+
+    // Seluruh alias loop tabel memakai struktur sheet Lampiran. Kolom progres pada
+    // tiap peserta diperkaya dari sheet Pembayaran melalui Email Pencacah/Nama PPL.
+    peserta: lampiranTableRows,
+    pembayaran: lampiranTableRows,
+    pembayaran_rows: lampiranTableRows,
+    rincian_pembayaran: lampiranTableRows,
+    tabel_ppl: lampiranTableRows,
+    ppl_rows: lampiranTableRows,
+    lampiran_peserta: lampiranTableRows,
+    bapp_peserta: bapp.peserta || [],
+    bast_peserta: bast.peserta || [],
+    tampil_surat_pernyataan: isPml,
+    is_pml: isPml,
+    is_ppl: !isPml,
+  };
+}
+
+function createBerkasPembayaranBlobFromTemplateBuffer(templateArrayBuffer, formValues, record, role, nikLookup) {
+  const zip = new PizZip(templateArrayBuffer);
+  const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+  doc.render(buildBerkasPembayaranTemplateData(formValues || {}, record || {}, role, nikLookup));
+  return doc.getZip().generate({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+}
+
+async function generateSingleBerkasPembayaran(templateUrl, formValues, record, role, nikLookup) {
+  if (!record) throw new Error("Data berkas pembayaran tidak ditemukan.");
+  const response = await fetch(templateUrl);
+  if (!response.ok) throw new Error(`Gagal memuat template berkas pembayaran: ${response.status} ${response.statusText}`);
+  const templateArrayBuffer = await response.arrayBuffer();
+  const blob = createBerkasPembayaranBlobFromTemplateBuffer(templateArrayBuffer, formValues, record, role, nikLookup);
+  saveAs(blob, `BERKAS PEMBAYARAN ${role} - ${sanitizeFileName(record.displayName)}.docx`);
+}
+
+const BERKAS_PEMBAYARAN_ZIP_BATCH_SIZE = 100;
+
+async function generateBerkasPembayaran(templateUrl, formValues, records, role, nikLookup, onProgress) {
+  const entries = Array.isArray(records) ? records.filter(Boolean) : [];
+  if (entries.length === 0) throw new Error(`Tidak ada data berkas pembayaran ${role}.`);
+
+  const response = await fetch(templateUrl);
+  if (!response.ok) throw new Error(`Gagal memuat template berkas pembayaran: ${response.status} ${response.statusText}`);
+  const templateArrayBuffer = await response.arrayBuffer();
+  const totalBatches = Math.ceil(entries.length / BERKAS_PEMBAYARAN_ZIP_BATCH_SIZE);
+
+  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+    const batchEntries = entries.slice(
+      batchIndex * BERKAS_PEMBAYARAN_ZIP_BATCH_SIZE,
+      (batchIndex + 1) * BERKAS_PEMBAYARAN_ZIP_BATCH_SIZE
+    );
+    const files = [];
+    const fileNameCounts = new Map();
+
+    for (const record of batchEntries) {
+      const blob = createBerkasPembayaranBlobFromTemplateBuffer(
+        templateArrayBuffer, formValues || {}, record, role, nikLookup
+      );
+      const baseName = sanitizeFileName(record.displayName);
+      const count = (fileNameCounts.get(upperText(baseName)) || 0) + 1;
+      fileNameCounts.set(upperText(baseName), count);
+      const duplicateSuffix = count > 1 ? ` (${count})` : "";
+      files.push({
+        name: `BERKAS PEMBAYARAN ${role} - ${baseName}${duplicateSuffix}.docx`,
+        blob,
+      });
+    }
+
+    if (typeof onProgress === "function") {
+      onProgress({ batchIndex: batchIndex + 1, totalBatches, totalRows: entries.length });
+    }
+
+    if (files.length === 1 && totalBatches === 1) {
+      saveAs(files[0].blob, files[0].name);
+      continue;
+    }
+
+    const batchSuffix = totalBatches > 1 ? ` - Bagian ${batchIndex + 1} dari ${totalBatches}` : "";
+    await downloadMultipleAsZip(
+      files,
+      `BERKAS PEMBAYARAN ${role} ${cleanText(formValues?.tanggal_surat || "SE2026")}${batchSuffix}.zip`
+    );
   }
 }
 
