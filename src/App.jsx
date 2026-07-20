@@ -21,13 +21,13 @@ import { renderAsync } from "docx-preview";
 // ─── DATA ────────────────────────────────────────────────────────────────────
 
 const DOC_TYPES = [
-  { id: "daftar-hadir",  icon: <ClipboardList />, label: "Daftar Hadir", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "orange", disabled: true, lockedMessage: "Fitur Daftar Hadir dikunci. Saat ini hanya Lampiran yang aktif." },
-  { id: "tanda-terima",  icon: <Briefcase />,     label: "Tanda Terima", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "amber", disabled: true, lockedMessage: "Fitur Tanda Terima dikunci. Saat ini hanya Lampiran yang aktif." },
-  { id: "surat-pernyataan-kendaraan", icon: <Car />, label: "Super Kendis", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "orange", disabled: true, lockedMessage: "Fitur Super Kendis dikunci. Saat ini hanya Lampiran yang aktif." },
-  { id: "pengeluaran-riil", icon: <Receipt />,    label: "DPR", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "amber", disabled: true, lockedMessage: "Fitur DPR dikunci. Saat ini hanya Lampiran yang aktif." },
-  { id: "spj",           icon: <FileText />,      label: "SPJ", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "orange", disabled: true, lockedMessage: "Fitur SPJ dikunci. Saat ini hanya Lampiran yang aktif." },
-  { id: "spd",           icon: <MapIcon />,           label: "SPD", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "amber", disabled: true, lockedMessage: "Fitur SPD dikunci. Saat ini hanya Lampiran yang aktif." },
-  { id: "surat-tugas",   icon: <Users />,         label: "Surtug", desc: "Fitur dikunci. Saat ini hanya Lampiran yang aktif.", color: "orange", disabled: true, lockedMessage: "Fitur Surat Tugas dikunci. Saat ini hanya Lampiran yang aktif." },
+  { id: "daftar-hadir",  icon: <ClipboardList />, label: "Daftar Hadir", desc: "Fitur dikunci", color: "orange", disabled: true, lockedMessage: "Fitur Daftar Hadir dikunci" },
+  { id: "tanda-terima",  icon: <Briefcase />,     label: "Tanda Terima", desc: "Fitur dikunci", color: "amber", disabled: true, lockedMessage: "Fitur Tanda Terima dikunci" },
+  { id: "surat-pernyataan-kendaraan", icon: <Car />, label: "Super Kendis", desc: "Fitur dikunci", color: "orange", disabled: true, lockedMessage: "Fitur Super Kendis dikunci" },
+  { id: "pengeluaran-riil", icon: <Receipt />,    label: "DPR", desc: "Fitur dikunci", color: "amber", disabled: true, lockedMessage: "Fitur DPR dikunci" },
+  { id: "spj",           icon: <FileText />,      label: "SPJ", desc: "Fitur dibuka sementara", color: "orange", disabled: false, lockedMessage: "Fitur SPJ dikunci" },
+  { id: "spd",           icon: <MapIcon />,           label: "SPD", desc: "Fitur dikunci", color: "amber", disabled: true, lockedMessage: "Fitur SPD dikunci" },
+  { id: "surat-tugas",   icon: <Users />,         label: "Surtug", desc: "Fitur dikunci", color: "orange", disabled: true, lockedMessage: "Fitur Surat Tugas dikunci" },
   { id: "bapp",          icon: <FileText />,      label: "BAPP", desc: "BAPP PML/PPL", color: "amber" },
   { id: "bast",          icon: <FileText />,      label: "BAST", desc: "BAST PML/PPL", color: "amber" },
   { id: "surat-pernyataan-penyelesaian-lapangan", icon: <FileText />, label: "Surat Pernyataan Penyelesaian Lapangan", desc: "Khusus PML", color: "amber" },
@@ -142,6 +142,8 @@ function normalizeBappRow(row) {
     wilayah: get("wilayah", "wil tugas", "wil. tugas", "wilayah tugas", "kecamatan", "asal"),
     kecamatan: get("kecamatan", "wilayah", "wil tugas", "wil. tugas", "wilayah tugas", "asal"),
     email,
+    username_sobat: get("username sobat", "username_sobat", "username", "sobat id", "sobatid"),
+    sobat_id: get("sobat id", "sobatid", "username sobat", "username_sobat", "username"),
     kelas: get("kelas"),
     gelombang: get("gelombang"),
     tempat: get("tempat", "hotel", "tc"),
@@ -273,6 +275,169 @@ function parseStatusSlsData(arrayBuffer) {
   return raw
     .map(normalizeStatusSlsRow)
     .filter((row) => row.nama_pml || row.nama_ppl || row.email_pml || row.email_ppl || row.kode_sls || row.status);
+}
+
+// ─── DATA PER SLS PARSER ─────────────────────────────────────────────────────
+// Sheet "Data per SLS" memiliki tiga baris header bertingkat. Karena itu parser
+// membaca nilai berdasarkan posisi kolom A:T, bukan berdasarkan nama header.
+function cleanDataPerSlsCell(value) {
+  const text = String(value ?? "").trim();
+  if (!text || /^#(?:N\/A|VALUE!|REF!|DIV\/0!|NAME\?|NUM!|NULL!)$/i.test(text)) return "";
+  return text;
+}
+
+function normalizeDataPerSlsRowFromArray(row = [], fallbackNo = 0) {
+  const get = (index) => cleanDataPerSlsCell(row?.[index]);
+  const keterangan = get(19);
+
+  return {
+    no_sumber: get(0) || String(fallbackNo || ""),
+    nama_pml: get(1),
+    username_pml: get(2),
+    nama_ppl: get(3),
+    username_ppl: get(4),
+
+    kdkec: normalizeStatusSlsCode(get(5), 3),
+    kddesa: normalizeStatusSlsCode(get(6), 3),
+    kode_sls: normalizeStatusSlsCode(get(7), 6),
+
+    target_keluarga: get(8),
+    target_usaha: get(9),
+    target_jumlah: get(10),
+
+    realisasi_dengan_tidak_ditemukan_keluarga: get(11),
+    realisasi_dengan_tidak_ditemukan_usaha: get(12),
+    realisasi_dengan_tidak_ditemukan_jumlah: get(13),
+    persentase_dengan_tidak_ditemukan: get(14),
+
+    realisasi_tanpa_tidak_ditemukan_keluarga: get(15),
+    realisasi_tanpa_tidak_ditemukan_usaha: get(16),
+    realisasi_tanpa_tidak_ditemukan_jumlah: get(17),
+    persentase_tanpa_tidak_ditemukan: get(18),
+
+    keterangan,
+    status: normalizeStatusSlsLabel(keterangan),
+  };
+}
+
+function parseDataPerSlsValues(values = []) {
+  const rows = Array.isArray(values) ? values : [];
+
+  // Cari baris data pertama. Baris nomor kolom seperti -1, -2, dan seterusnya
+  // tidak dianggap data karena tidak memuat nama petugas.
+  const firstDataIndex = rows.findIndex((row) => {
+    const no = cleanDataPerSlsCell(row?.[0]);
+    const namaPml = cleanDataPerSlsCell(row?.[1]);
+    const namaPpl = cleanDataPerSlsCell(row?.[3]);
+    const hasPersonName = /[A-Za-z]/.test(`${namaPml} ${namaPpl}`);
+    const hasCode = [5, 6, 7].some((index) => /\d/.test(cleanDataPerSlsCell(row?.[index])));
+    return /^\d+(?:[.,]0+)?$/.test(no) && hasPersonName && hasCode;
+  });
+
+  if (firstDataIndex < 0) return [];
+
+  return rows
+    .slice(firstDataIndex)
+    .map((row, index) => normalizeDataPerSlsRowFromArray(row, index + 1))
+    .filter((row) =>
+      row.nama_pml || row.nama_ppl || row.username_pml || row.username_ppl ||
+      row.kdkec || row.kddesa || row.kode_sls
+    );
+}
+
+function parseDataPerSlsData(arrayBuffer) {
+  const workbook = XLSX.read(arrayBuffer, { type: "array" });
+  const sheetName = workbook.SheetNames.find(
+    (name) => String(name ?? "").trim().toLowerCase() === "data per sls"
+  );
+
+  if (!sheetName) {
+    console.warn("Sheet bernama 'Data per SLS' tidak ditemukan; tabel beban kerja pada berkas pembayaran akan kosong.");
+    return [];
+  }
+
+  const sheet = workbook.Sheets[sheetName];
+  const values = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    defval: "",
+    raw: false,
+    blankrows: false,
+  });
+  return parseDataPerSlsValues(values);
+}
+
+// ─── APPROVE BY PML PARSER ──────────────────────────────────────────────────
+// Untuk berkas PML, nilai realisasi/jumlah pemeriksaan bersumber dari kolom
+// "Jumlah Approve PML" pada sheet "Approve by PML".
+function normalizeApproveByPmlRow(row = {}) {
+  const normalized = {};
+  Object.entries(row || {}).forEach(([key, value]) => {
+    const normalizedKey = String(key ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ");
+    normalized[normalizedKey] = cleanDataPerSlsCell(value);
+  });
+
+  const get = (...keys) => {
+    for (const key of keys) {
+      const value = normalized[String(key ?? "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ")];
+      if (cleanDataPerSlsCell(value)) return cleanDataPerSlsCell(value);
+    }
+    return "";
+  };
+
+  const namaSls = get("nama sls", "sls", "nama_sls");
+  const kodeDalamKurung = String(namaSls).match(/\[\s*(\d{1,6})\s*\]/);
+  const kodeSlsLangsung = get("kode sls", "kode_sls", "kdsls");
+  const kodeSls = normalizeStatusSlsCode(
+    kodeSlsLangsung || (kodeDalamKurung ? kodeDalamKurung[1] : ""),
+    6
+  );
+
+  return {
+    nama_sls: namaSls,
+    kode_sls: kodeSls,
+    email_ppl: get("email ppl", "email pencacah", "email_ppl"),
+    nama_ppl: get("nama ppl", "nama pencacah", "nama_ppl"),
+    email_pml: get("email pml", "email pengawas", "email_pml"),
+    nama_pml: get("nama pml", "nama pengawas", "nama_pml"),
+    selesai: get("selesai", "status selesai", "status"),
+    tanggal_screen: get("tanggal screen", "tanggal screenshot", "tanggal"),
+    jumlah_submit: get("jumlah submit", "jumlah_submit"),
+    jumlah_approve_pml: get(
+      "jumlah approve pml",
+      "jumlah approve by pml",
+      "jumlah_approve_pml",
+      "approve pml"
+    ),
+    submitted_by: get("submitted by", "submitted_by", "pengirim"),
+    submitted_by_role: get("submitted by 1", "submitted by_1", "role submitted by", "submitted by role"),
+    waktu_submit: get("waktu submit", "waktu_submit"),
+    catatan: get("catatan", "keterangan"),
+  };
+}
+
+function parseApproveByPmlData(arrayBuffer) {
+  const workbook = XLSX.read(arrayBuffer, { type: "array" });
+  const sheetName = workbook.SheetNames.find(
+    (name) => String(name ?? "").trim().toLowerCase() === "approve by pml"
+  );
+
+  if (!sheetName) {
+    console.warn("Sheet bernama 'Approve by PML' tidak ditemukan; jumlah PML akan memakai fallback Data per SLS.");
+    return [];
+  }
+
+  const sheet = workbook.Sheets[sheetName];
+  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+  return raw
+    .map(normalizeApproveByPmlRow)
+    .filter((row) =>
+      row.nama_sls || row.kode_sls || row.nama_pml || row.email_pml ||
+      row.nama_ppl || row.email_ppl || row.jumlah_approve_pml
+    );
 }
 
 function isBappRowForRole(row, role = "PML") {
@@ -650,6 +815,47 @@ function findStatusSlsSheetFromRows(sheetRows = []) {
   return null;
 }
 
+function findDataPerSlsSheetFromRows(sheetRows = []) {
+  const exact = (sheetRows || []).find(
+    (sheet) => String(sheet?.sheetName ?? "").trim().toLowerCase() === "data per sls"
+  );
+  if (exact && Array.isArray(exact.values) && exact.values.length > 0) return exact;
+
+  // Fallback bila nama tab sedikit berubah, tetapi struktur header tetap sama.
+  return (sheetRows || []).find((sheet) => {
+    const headerText = (sheet?.values || [])
+      .slice(0, 4)
+      .flat()
+      .map((value) => String(value ?? "").trim().toLowerCase())
+      .join(" ");
+    return headerText.includes("target prelist awal") &&
+      headerText.includes("username sobat") &&
+      headerText.includes("sls/sub-sls");
+  }) || null;
+}
+
+function findApproveByPmlSheetFromRows(sheetRows = []) {
+  const exact = (sheetRows || []).find(
+    (sheet) => String(sheet?.sheetName ?? "").trim().toLowerCase() === "approve by pml"
+  );
+  if (exact && Array.isArray(exact.rows) && exact.rows.length > 0) return exact;
+
+  return (sheetRows || []).find((sheet) => {
+    const rows = Array.isArray(sheet?.rows) ? sheet.rows : [];
+    if (rows.length === 0) return false;
+    const headers = Object.keys(rows[0] || {})
+      .map((value) => String(value ?? "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " "));
+    const hasPml = headers.includes("nama pml") || headers.includes("email pml");
+    const hasPpl = headers.includes("nama ppl") || headers.includes("email ppl");
+    const hasApprove = headers.some((header) =>
+      header === "jumlah approve pml" ||
+      header === "jumlah approve by pml" ||
+      header === "jumlah approve"
+    );
+    return hasPml && hasPpl && hasApprove;
+  }) || null;
+}
+
 function normalizeHeaderKeys(headers) {
   return headers.map((h) => String(h ?? "").trim().toLowerCase());
 }
@@ -696,7 +902,7 @@ async function loadGoogleSheet(source, apiKey = "") {
       if (!valuesResponse.ok) continue;
       const valuesData = await valuesResponse.json();
       const rows = parseGoogleSheetApiRows(valuesData.values || []);
-      sheetRows.push({ sheetName, rows });
+      sheetRows.push({ sheetName, rows, values: valuesData.values || [] });
     }
 
     const adminSheetInfo = findAdministrasiSheetFromRows(sheetRows);
@@ -724,12 +930,27 @@ async function loadGoogleSheet(source, apiKey = "") {
       ? statusSlsSheetInfo.data.map(normalizeStatusSlsRow).filter((row) => row.kode_sls || row.status || row.nama_ppl || row.email_ppl)
       : [];
 
+    const dataPerSlsSheetInfo = findDataPerSlsSheetFromRows(sheetRows);
+    const dataPerSls = dataPerSlsSheetInfo
+      ? parseDataPerSlsValues(dataPerSlsSheetInfo.values || [])
+      : [];
+
+    const approveByPmlSheetInfo = findApproveByPmlSheetFromRows(sheetRows);
+    const approveByPml = approveByPmlSheetInfo
+      ? (approveByPmlSheetInfo.rows || []).map(normalizeApproveByPmlRow).filter((row) =>
+          row.nama_sls || row.kode_sls || row.nama_pml || row.email_pml ||
+          row.nama_ppl || row.email_ppl || row.jumlah_approve_pml
+        )
+      : [];
+
     console.log("Data petugas parsed rows (API):", data);
     console.log("Lampiran state candidate rows (API):", lampiran);
     console.log("BAPP parsed rows (API):", bappData);
     console.log("Status SLS parsed rows (API):", statusSls);
+    console.log("Data per SLS parsed rows (API):", dataPerSls);
+    console.log("Approve by PML parsed rows (API):", approveByPml);
 
-    return { data, lampiran, bappData, statusSls, rawHeaders };
+    return { data, lampiran, bappData, statusSls, dataPerSls, approveByPml, rawHeaders };
   }
 
   const response = await fetch(source?.exportUrl || source);
@@ -755,13 +976,17 @@ async function loadGoogleSheet(source, apiKey = "") {
   const lampiran = parseLampiranXlsxData(arrayBuffer);
   const bappData = parseBappData(arrayBuffer);
   const statusSls = parseStatusSlsData(arrayBuffer);
+  const dataPerSls = parseDataPerSlsData(arrayBuffer);
+  const approveByPml = parseApproveByPmlData(arrayBuffer);
 
   console.log("Data petugas parsed rows:", data);
   console.log("Lampiran state candidate rows:", lampiran);
   console.log("BAPP parsed rows:", bappData);
   console.log("Status SLS parsed rows:", statusSls);
+  console.log("Data per SLS parsed rows:", dataPerSls);
+  console.log("Approve by PML parsed rows:", approveByPml);
 
-  return { data, lampiran, bappData, statusSls, rawHeaders };
+  return { data, lampiran, bappData, statusSls, dataPerSls, approveByPml, rawHeaders };
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -1913,6 +2138,8 @@ export default function PortalAdministrasiSE2026() {
   const [lampiranData,       setLampiranData]       = useState([]);
   const [bappData,           setBappData]           = useState([]);
   const [statusSlsData,      setStatusSlsData]      = useState([]);
+  const [dataPerSlsData,     setDataPerSlsData]     = useState([]);
+  const [approveByPmlData,   setApproveByPmlData]   = useState([]);
   const [xlsxLoaded,         setXlsxLoaded]         = useState(false);
   const [xlsxFileName,       setXlsxFileName]       = useState("data-petugas.xlsx");
   const [googleSheetUrl,     setGoogleSheetUrl]     = useState("https://docs.google.com/spreadsheets/d/10jA_NOMNn5pBuy1OPrSdHstscRrUOUlEDElk-jOmXLQ/edit?gid=1095810027#gid=1095810027");
@@ -1930,9 +2157,23 @@ export default function PortalAdministrasiSE2026() {
     setGoogleSheetError(null);
     setGoogleSheetLoading(true);
     try {
-      const { data, lampiran, bappData: loadedBappData, statusSls: loadedStatusSls } = await loadGoogleSheet(normalized, googleSheetApiKey);
-      if (data.length === 0 && (!lampiran || lampiran.length === 0) && (!loadedBappData || loadedBappData.length === 0) && (!loadedStatusSls || loadedStatusSls.length === 0)) {
-        setGoogleSheetError("Tidak ada data petugas, Lampiran, Pembayaran, maupun Status SLS yang terbaca.");
+      const {
+        data,
+        lampiran,
+        bappData: loadedBappData,
+        statusSls: loadedStatusSls,
+        dataPerSls: loadedDataPerSls,
+        approveByPml: loadedApproveByPml,
+      } = await loadGoogleSheet(normalized, googleSheetApiKey);
+      if (
+        data.length === 0 &&
+        (!lampiran || lampiran.length === 0) &&
+        (!loadedBappData || loadedBappData.length === 0) &&
+        (!loadedStatusSls || loadedStatusSls.length === 0) &&
+        (!loadedDataPerSls || loadedDataPerSls.length === 0) &&
+        (!loadedApproveByPml || loadedApproveByPml.length === 0)
+      ) {
+        setGoogleSheetError("Tidak ada data petugas, Lampiran, Pembayaran, Status SLS, Data per SLS, maupun Approve by PML yang terbaca.");
         return;
       }
 
@@ -1940,8 +2181,10 @@ export default function PortalAdministrasiSE2026() {
       setLampiranData(lampiran || []);
       setBappData(loadedBappData || []);
       setStatusSlsData(loadedStatusSls || []);
+      setDataPerSlsData(loadedDataPerSls || []);
+      setApproveByPmlData(loadedApproveByPml || []);
       setXlsxLoaded(true);
-      setXlsxFileName(`${data.length} petugas, ${lampiran?.length || 0} lampiran, ${loadedBappData?.length || 0} pembayaran, ${loadedStatusSls?.length || 0} status SLS`);
+      setXlsxFileName(`${data.length} petugas, ${lampiran?.length || 0} lampiran, ${loadedBappData?.length || 0} pembayaran, ${loadedStatusSls?.length || 0} status SLS, ${loadedDataPerSls?.length || 0} data per SLS, ${loadedApproveByPml?.length || 0} approve PML`);
     } catch (err) {
       setGoogleSheetError(`Gagal memuat Google Sheet: ${err.message}`);
     } finally {
@@ -1959,11 +2202,18 @@ export default function PortalAdministrasiSE2026() {
         const lampiran = parseLampiranXlsxData(buffer);
         const bappRows = parseBappData(buffer);
         const statusSlsRows = parseStatusSlsData(buffer);
+        const dataPerSlsRows = parseDataPerSlsData(buffer);
+        const approveByPmlRows = parseApproveByPmlData(buffer);
         setPetugasData(data || []);
         setLampiranData(lampiran || []);
         setBappData(bappRows || []);
         setStatusSlsData(statusSlsRows || []);
-        setXlsxLoaded(Boolean(lampiran?.length || data?.length || bappRows?.length || statusSlsRows?.length));
+        setDataPerSlsData(dataPerSlsRows || []);
+        setApproveByPmlData(approveByPmlRows || []);
+        setXlsxLoaded(Boolean(
+          lampiran?.length || data?.length || bappRows?.length ||
+          statusSlsRows?.length || dataPerSlsRows?.length || approveByPmlRows?.length
+        ));
       } catch (err) {
         console.warn("Tidak dapat memuat data-petugas.xlsx:", err.message);
       }
@@ -1995,11 +2245,18 @@ export default function PortalAdministrasiSE2026() {
         const lampiran = parseLampiranXlsxData(buffer);
         const bappRows = parseBappData(buffer);
         const statusSlsRows = parseStatusSlsData(buffer);
+        const dataPerSlsRows = parseDataPerSlsData(buffer);
+        const approveByPmlRows = parseApproveByPmlData(buffer);
         setPetugasData(data || []);
         setLampiranData(lampiran || []);
         setBappData(bappRows || []);
         setStatusSlsData(statusSlsRows || []);
-        setXlsxLoaded(Boolean(lampiran?.length || data?.length || bappRows?.length || statusSlsRows?.length));
+        setDataPerSlsData(dataPerSlsRows || []);
+        setApproveByPmlData(approveByPmlRows || []);
+        setXlsxLoaded(Boolean(
+          lampiran?.length || data?.length || bappRows?.length ||
+          statusSlsRows?.length || dataPerSlsRows?.length || approveByPmlRows?.length
+        ));
         setXlsxFileName(file.name);
       } catch (err) { alert("Gagal membaca file xlsx: " + err.message); }
     };
@@ -2129,7 +2386,7 @@ export default function PortalAdministrasiSE2026() {
                     <h2 className="text-3xl font-black tracking-tight text-slate-950">{selectedDoc.label}</h2>
                   </div>
                 </div>
-                <DocForm docType={selectedDoc} formData={formData} setFormData={setFormData} onPreview={(data) => { setPreviewData(data); setView("preview"); }} petugasData={petugasData} lampiranData={lampiranData} bappData={bappData} statusSlsData={statusSlsData} xlsxLoaded={xlsxLoaded} />
+                <DocForm docType={selectedDoc} formData={formData} setFormData={setFormData} onPreview={(data) => { setPreviewData(data); setView("preview"); }} petugasData={petugasData} lampiranData={lampiranData} bappData={bappData} statusSlsData={statusSlsData} dataPerSlsData={dataPerSlsData} approveByPmlData={approveByPmlData} xlsxLoaded={xlsxLoaded} />
               </div>
             </motion.div>
           )}
@@ -2666,7 +2923,7 @@ function FilterPesertaHotelGelombangPanel({ xlsxLoaded, formData, setFormData, p
 
 // ─── DOC FORM ─────────────────────────────────────────────────────────────────
 
-function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampiranData = [], bappData = [], statusSlsData = [], xlsxLoaded }) {
+function DocForm({ docType, formData, setFormData, onPreview, petugasData, lampiranData = [], bappData = [], statusSlsData = [], dataPerSlsData = [], approveByPmlData = [], xlsxLoaded }) {
   const update = (key, val) => setFormData((p) => ({ ...p, [key]: val }));
 
 const [gabunganRole, setGabunganRole] = useState(""); // "PML" | "PPL"
@@ -2917,8 +3174,15 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
 
         const berkasRecords = React.useMemo(() => {
           if (!gabunganRole) return [];
-          return buildBerkasPembayaranRecords(bappData || [], lampiranData || [], gabunganRole, statusSlsData || []);
-        }, [bappData, lampiranData, gabunganRole, statusSlsData]);
+          return buildBerkasPembayaranRecords(
+            bappData || [],
+            lampiranData || [],
+            gabunganRole,
+            statusSlsData || [],
+            dataPerSlsData || [],
+            approveByPmlData || []
+          );
+        }, [bappData, lampiranData, gabunganRole, statusSlsData, dataPerSlsData, approveByPmlData]);
 
         const berkasOptions = React.useMemo(() => {
           return berkasRecords.map((record) => ({
@@ -2998,7 +3262,7 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
                     ))}
                   </select>
                   <p className="mt-1 text-xs font-semibold text-slate-400">
-                    {berkasRecords.length} orang terdeteksi. Filter tabel memakai {statusSlsData.length} baris dari sheet Status SLS.
+                    {berkasRecords.length} orang terdeteksi. Filter Lampiran memakai {statusSlsData.length} baris Status SLS. Tabel beban kerja memakai {dataPerSlsData.length} baris Data per SLS. Jumlah PML memakai {approveByPmlData.length} baris Approve by PML.
                   </p>
                 </div>
 
@@ -4545,7 +4809,14 @@ function getBerkasIdentity(nama, email) {
   return `NAME::${upperText(nama)}`;
 }
 
-function buildBerkasPembayaranRecords(bappRows = [], lampiranRows = [], role = "PML", statusSlsRows = []) {
+function buildBerkasPembayaranRecords(
+  bappRows = [],
+  lampiranRows = [],
+  role = "PML",
+  statusSlsRows = [],
+  dataPerSlsRows = [],
+  approveByPmlRows = []
+) {
   const isPml = upperText(role) === "PML";
   const records = [];
   const byEmail = new Map();
@@ -4584,6 +4855,12 @@ function buildBerkasPembayaranRecords(bappRows = [], lampiranRows = [], role = "
       // Baris dari sheet Status SLS milik PML/PPL ini. Dipakai untuk menyaring
       // baris Lampiran sebelum tabel gabungan dibentuk.
       statusSlsRows: [],
+      // Baris sheet Data per SLS untuk tabel beban kerja pada halaman terakhir.
+      dataPerSlsRows: [],
+      // Baris sheet Approve by PML. Khusus dokumen PML, nilai ini menjadi sumber
+      // realisasi/jumlah pemeriksaan, baik per SLS, per PPL, maupun total PML.
+      approveByPmlRows: [],
+      usernameSobat: cleanText(bappRow?.username_sobat || bappRow?.sobat_id || ""),
     };
     records.push(record);
     if (email) byEmail.set(upperText(email), record);
@@ -4724,6 +5001,110 @@ function buildBerkasPembayaranRecords(bappRows = [], lampiranRows = [], role = "
     record.statusSlsRows.push(statusRow);
   }
 
+  // Kaitkan sheet Data per SLS ke dokumen PML/PPL. Nama menjadi kunci utama.
+  // Username Sobat dipakai untuk membantu pencocokan bila nama tidak unik.
+  const normalizePersonKey = (value) => upperText(value).replace(/\s+/g, " ");
+  const dataPerSlsRowKey = (row) => [
+    cleanText(row?.no_sumber),
+    normalizePersonKey(row?.nama_pml),
+    normalizePersonKey(row?.username_pml),
+    normalizePersonKey(row?.nama_ppl),
+    normalizePersonKey(row?.username_ppl),
+    cleanText(row?.kdkec),
+    cleanText(row?.kddesa),
+    cleanText(row?.kode_sls),
+  ].join("|");
+
+  for (const dataRow of dataPerSlsRows || []) {
+    const ownerName = cleanText(isPml ? dataRow?.nama_pml : dataRow?.nama_ppl);
+    const ownerUsername = cleanText(isPml ? dataRow?.username_pml : dataRow?.username_ppl);
+    const nameKey = normalizePersonKey(ownerName);
+    const usernameKey = normalizePersonKey(ownerUsername);
+
+    let record = null;
+
+    if (usernameKey) {
+      const usernameMatches = records.filter((candidate) => {
+        const candidateUsername = normalizePersonKey(
+          candidate?.usernameSobat ||
+          candidate?.bappRow?.username_sobat ||
+          candidate?.bappRow?.sobat_id ||
+          ""
+        );
+        const candidateEmail = normalizePersonKey(candidate?.email || candidate?.bappRow?.email || "");
+        const candidateEmailLocal = candidateEmail.includes("@") ? candidateEmail.split("@")[0] : candidateEmail;
+        return candidateUsername === usernameKey ||
+          candidateEmail === usernameKey ||
+          candidateEmailLocal === usernameKey;
+      });
+      if (usernameMatches.length === 1) record = usernameMatches[0];
+    }
+
+    if (!record && nameKey) {
+      const nameMatches = records.filter(
+        (candidate) => normalizePersonKey(candidate?.displayName || "") === nameKey
+      );
+      if (nameMatches.length === 1) record = nameMatches[0];
+    }
+
+    if (!record && nameKey && !ambiguousNames.has(nameKey)) {
+      record = byName.get(nameKey) || null;
+    }
+
+    // Data per SLS tetap dapat membentuk pilihan dokumen ketika orang tersebut
+    // belum muncul pada sheet Pembayaran atau Lampiran.
+    if (!record && ownerName) record = ensureRecord(ownerName, "", null);
+    if (!record) continue;
+
+    if (!record.usernameSobat && ownerUsername) record.usernameSobat = ownerUsername;
+    const rowKey = dataPerSlsRowKey(dataRow);
+    const alreadyAdded = record.dataPerSlsRows.some((item) => dataPerSlsRowKey(item) === rowKey);
+    if (!alreadyAdded) record.dataPerSlsRows.push(dataRow);
+  }
+
+  // Kaitkan sheet Approve by PML ke pemilik dokumen. Untuk role PML, relasi
+  // utama memakai Email PML lalu Nama PML. Untuk role PPL data ini tidak mengubah
+  // hasil, tetapi tetap dapat ditempel untuk kebutuhan diagnostik.
+  const approveRowKey = (row) => [
+    upperText(row?.email_pml || ""),
+    upperText(row?.nama_pml || ""),
+    upperText(row?.email_ppl || ""),
+    upperText(row?.nama_ppl || ""),
+    normalizeStatusSlsCode(row?.kode_sls || "", 6),
+    cleanText(row?.jumlah_approve_pml || ""),
+    cleanText(row?.waktu_submit || ""),
+  ].join("|");
+
+  for (const approveRow of approveByPmlRows || []) {
+    const ownerName = cleanText(isPml ? approveRow?.nama_pml : approveRow?.nama_ppl);
+    const ownerEmail = cleanText(isPml ? approveRow?.email_pml : approveRow?.email_ppl);
+    const emailKey = upperText(ownerEmail);
+    const nameKey = upperText(ownerName);
+
+    let record = emailKey ? byEmail.get(emailKey) : null;
+    if (!record && nameKey && !ambiguousNames.has(nameKey)) record = byName.get(nameKey);
+
+    if (!record && isPml) {
+      const approvePplEmail = upperText(approveRow?.email_ppl || "");
+      const approvePplName = upperText(approveRow?.nama_ppl || "");
+      record = records.find((candidate) =>
+        (candidate?.lampiranRows || []).some((lampiranRow) => {
+          const lampiranPplEmail = upperText(lampiranRow?.email_pencacah || lampiranRow?.email_ppl || "");
+          const lampiranPplName = upperText(lampiranRow?.nama_ppl || "");
+          return (approvePplEmail && approvePplEmail === lampiranPplEmail) ||
+            (approvePplName && approvePplName === lampiranPplName);
+        })
+      ) || null;
+    }
+
+    if (!record && ownerName) record = ensureRecord(ownerName, ownerEmail, null);
+    if (!record) continue;
+
+    const rowKey = approveRowKey(approveRow);
+    const alreadyAdded = record.approveByPmlRows.some((item) => approveRowKey(item) === rowKey);
+    if (!alreadyAdded) record.approveByPmlRows.push(approveRow);
+  }
+
   return records.sort((a, b) =>
     cleanText(a.displayName).localeCompare(cleanText(b.displayName), "id-ID", { sensitivity: "base" })
   );
@@ -4797,6 +5178,304 @@ function calculateAveragePersentase(pembayaranRows = []) {
   if (values.length === 0) return { raw: null, formatted: "", count: 0 };
   const raw = values.reduce((sum, value) => sum + value, 0) / values.length;
   return { raw, formatted: formatPercentageNumber(raw, 2), count: values.length };
+}
+
+function parseDataPerSlsNumber(value) {
+  let text = cleanText(value).replace(/%/g, "").replace(/\s+/g, "");
+  if (!text || /^#(?:N\/A|VALUE!|REF!|DIV\/0!|NAME\?|NUM!|NULL!)$/i.test(text)) return null;
+
+  if (text.includes(",") && text.includes(".")) {
+    if (text.lastIndexOf(",") > text.lastIndexOf(".")) {
+      text = text.replace(/\./g, "").replace(",", ".");
+    } else {
+      text = text.replace(/,/g, "");
+    }
+  } else if (text.includes(",")) {
+    text = text.replace(",", ".");
+  } else if (/^[+-]?\d{1,3}(?:\.\d{3})+$/.test(text)) {
+    // Untuk angka hitungan, titik berulang tiga digit dianggap pemisah ribuan.
+    text = text.replace(/\./g, "");
+  }
+
+  const parsed = Number(text.replace(/[^0-9.+-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatDataPerSlsAggregate(value) {
+  if (!Number.isFinite(value)) return "";
+  if (Math.abs(value - Math.round(value)) < 1e-9) return String(Math.round(value));
+  return value.toLocaleString("id-ID", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function normalizeApprovePersonKey(value) {
+  return upperText(value)
+    .replace(/^@/, "")
+    .replace(/\s+/g, " ");
+}
+
+function approveEmailLocalPart(value) {
+  const text = normalizeApprovePersonKey(value);
+  return text.includes("@") ? text.split("@")[0] : text;
+}
+
+function sumJumlahApprovePml(rows = []) {
+  let total = 0;
+  let count = 0;
+  for (const row of rows || []) {
+    const value = parseDataPerSlsNumber(row?.jumlah_approve_pml);
+    if (value == null) continue;
+    total += value;
+    count += 1;
+  }
+  return {
+    raw: count > 0 ? total : null,
+    formatted: count > 0 ? formatDataPerSlsAggregate(total) : "",
+    count,
+  };
+}
+
+function approveRowMatchesPpl(approveRow = {}, target = {}) {
+  const approveEmail = normalizeApprovePersonKey(approveRow?.email_ppl || "");
+  const approveEmailLocal = approveEmailLocalPart(approveRow?.email_ppl || "");
+  const approveName = normalizeApprovePersonKey(approveRow?.nama_ppl || "");
+
+  const targetEmail = normalizeApprovePersonKey(
+    target?.email_ppl || target?.email_pencacah || target?.email || ""
+  );
+  const targetEmailLocal = approveEmailLocalPart(
+    target?.email_ppl || target?.email_pencacah || target?.email || ""
+  );
+  const targetUsername = normalizeApprovePersonKey(
+    target?.username_ppl || target?.username_sobat_ppl || ""
+  );
+  const targetName = normalizeApprovePersonKey(target?.nama_ppl || target?.nama || "");
+
+  return Boolean(
+    (approveEmail && targetEmail && approveEmail === targetEmail) ||
+    (approveEmailLocal && targetEmailLocal && approveEmailLocal === targetEmailLocal) ||
+    (approveEmailLocal && targetUsername && approveEmailLocal === targetUsername) ||
+    (approveName && targetName && approveName === targetName)
+  );
+}
+
+function findApproveRowsForWorkloadRow(workloadRow = {}, approveRows = []) {
+  const kodeSls = normalizeStatusSlsCode(workloadRow?.kode_sls || "", 6);
+  const byCode = (approveRows || []).filter((row) =>
+    normalizeStatusSlsCode(row?.kode_sls || "", 6) === kodeSls
+  );
+  if (byCode.length === 0) return [];
+
+  const byPpl = byCode.filter((row) => approveRowMatchesPpl(row, workloadRow));
+  if (byPpl.length > 0) return byPpl;
+
+  const workloadPmlName = normalizeApprovePersonKey(workloadRow?.nama_pml || "");
+  const workloadPmlUsername = normalizeApprovePersonKey(
+    workloadRow?.username_pml || workloadRow?.username_sobat_pml || ""
+  );
+  const byPml = byCode.filter((row) => {
+    const approvePmlName = normalizeApprovePersonKey(row?.nama_pml || "");
+    const approvePmlEmailLocal = approveEmailLocalPart(row?.email_pml || "");
+    return (workloadPmlName && approvePmlName === workloadPmlName) ||
+      (workloadPmlUsername && approvePmlEmailLocal === workloadPmlUsername);
+  });
+  if (byPml.length > 0) return byPml;
+
+  return byCode.length === 1 ? byCode : [];
+}
+
+function applyApproveByPmlToWorkload(workload = {}, approveRows = [], role = "PML") {
+  if (upperText(role) !== "PML" || !Array.isArray(approveRows) || approveRows.length === 0) {
+    return workload;
+  }
+
+  const rows = (workload?.rows || []).map((row) => {
+    const matchingApproveRows = findApproveRowsForWorkloadRow(row, approveRows);
+    const approved = sumJumlahApprovePml(matchingApproveRows);
+    const approvedRaw = approved.raw == null ? 0 : approved.raw;
+    const approvedFormatted = approved.raw == null ? "0" : approved.formatted;
+
+    const target = parseDataPerSlsNumber(row?.target_jumlah);
+    const percentageRaw = target && target > 0 ? (approvedRaw / target) * 100 : null;
+    const percentage = percentageRaw == null ? "" : formatPercentageNumber(percentageRaw, 2);
+
+    return {
+      ...row,
+      realisasi_jumlah: approvedFormatted,
+      realisasi_dengan_tidak_ditemukan_jumlah: approvedFormatted,
+      jumlah_approve_pml: approvedFormatted,
+      jumlah_approve_pml_raw: approvedRaw,
+      jumlah_baris_approve_pml: approved.count,
+      approve_pml_ditemukan: approved.raw != null,
+      persentase: percentage,
+      persentase_dengan_tidak_ditemukan: percentage,
+      persentase_raw: percentageRaw == null ? "" : percentageRaw,
+      sumber_realisasi: "Approve by PML",
+    };
+  });
+
+  const targetKeluargaRaw = rows.reduce((sum, row) => sum + (parseDataPerSlsNumber(row?.target_keluarga) || 0), 0);
+  const targetUsahaRaw = rows.reduce((sum, row) => sum + (parseDataPerSlsNumber(row?.target_usaha) || 0), 0);
+  const targetJumlahRaw = rows.reduce((sum, row) => sum + (parseDataPerSlsNumber(row?.target_jumlah) || 0), 0);
+  const realisasiKeluargaRaw = rows.reduce((sum, row) => sum + (parseDataPerSlsNumber(row?.realisasi_keluarga) || 0), 0);
+  const realisasiUsahaRaw = rows.reduce((sum, row) => sum + (parseDataPerSlsNumber(row?.realisasi_usaha) || 0), 0);
+  const realisasiJumlahDariBarisRaw = rows.reduce(
+    (sum, row) => sum + (parseDataPerSlsNumber(row?.realisasi_jumlah) || 0),
+    0
+  );
+  // Total PML harus sama persis dengan penjumlahan seluruh kolom
+  // "Jumlah Approve PML" pada record PML, walaupun ada kode SLS yang tidak cocok.
+  const directApproveTotal = sumJumlahApprovePml(approveRows);
+  const realisasiJumlahRaw = directApproveTotal.raw == null
+    ? realisasiJumlahDariBarisRaw
+    : directApproveTotal.raw;
+  const percentageRaw = targetJumlahRaw > 0 ? (realisasiJumlahRaw / targetJumlahRaw) * 100 : null;
+
+  const total = {
+    ...(workload?.total || {}),
+    target_keluarga: rows.length ? formatDataPerSlsAggregate(targetKeluargaRaw) : "",
+    target_usaha: rows.length ? formatDataPerSlsAggregate(targetUsahaRaw) : "",
+    target_jumlah: rows.length ? formatDataPerSlsAggregate(targetJumlahRaw) : "",
+    realisasi_keluarga: rows.length ? formatDataPerSlsAggregate(realisasiKeluargaRaw) : "",
+    realisasi_usaha: rows.length ? formatDataPerSlsAggregate(realisasiUsahaRaw) : "",
+    realisasi_jumlah: rows.length ? formatDataPerSlsAggregate(realisasiJumlahRaw) : "",
+    jumlah_approve_pml: rows.length ? formatDataPerSlsAggregate(realisasiJumlahRaw) : "",
+    persentase: percentageRaw == null ? "" : formatPercentageNumber(percentageRaw, 2),
+    persentase_raw: percentageRaw == null ? "" : percentageRaw,
+    // Keterangan PML sengaja dikosongkan agar tidak ditulis pada pemberkasan.
+    keterangan: "",
+    sumber_realisasi: "Approve by PML",
+  };
+
+  return { rows, total };
+}
+
+function getDataPerSlsValueOrSum(primaryValue, firstValue, secondValue) {
+  const primary = cleanText(primaryValue);
+  if (primary) return primary;
+  const first = parseDataPerSlsNumber(firstValue);
+  const second = parseDataPerSlsNumber(secondValue);
+  if (first == null && second == null) return "";
+  return formatDataPerSlsAggregate((first || 0) + (second || 0));
+}
+
+function buildDataPerSlsWorkloadRows(sourceRows = [], role = "PML") {
+  const sortedSource = [...(sourceRows || [])].sort((a, b) => {
+    const noA = parseDataPerSlsNumber(a?.no_sumber);
+    const noB = parseDataPerSlsNumber(b?.no_sumber);
+    if (noA != null && noB != null && noA !== noB) return noA - noB;
+
+    const kecDiff = cleanText(a?.kdkec).localeCompare(cleanText(b?.kdkec), "id-ID", { numeric: true });
+    if (kecDiff !== 0) return kecDiff;
+    const desaDiff = cleanText(a?.kddesa).localeCompare(cleanText(b?.kddesa), "id-ID", { numeric: true });
+    if (desaDiff !== 0) return desaDiff;
+    return cleanText(a?.kode_sls).localeCompare(cleanText(b?.kode_sls), "id-ID", { numeric: true });
+  });
+
+  const rows = sortedSource.map((row, index) => {
+    const targetJumlah = getDataPerSlsValueOrSum(
+      row?.target_jumlah,
+      row?.target_keluarga,
+      row?.target_usaha
+    );
+    const realisasiJumlah = getDataPerSlsValueOrSum(
+      row?.realisasi_dengan_tidak_ditemukan_jumlah,
+      row?.realisasi_dengan_tidak_ditemukan_keluarga,
+      row?.realisasi_dengan_tidak_ditemukan_usaha
+    );
+
+    const targetNumber = parseDataPerSlsNumber(targetJumlah);
+    const realisasiNumber = parseDataPerSlsNumber(realisasiJumlah);
+    const percentageSource = cleanText(row?.persentase_dengan_tidak_ditemukan || "");
+    const percentageNumber = parsePercentageNumber(percentageSource);
+    const computedPercentage = percentageNumber != null
+      ? percentageNumber
+      : targetNumber && realisasiNumber != null
+        ? (realisasiNumber / targetNumber) * 100
+        : null;
+    const percentageFormatted = computedPercentage == null
+      ? percentageSource
+      : formatPercentageNumber(computedPercentage, 2);
+
+    return {
+      no: index + 1,
+      no_sumber: cleanText(row?.no_sumber || ""),
+      nama_pml: cleanText(row?.nama_pml || ""),
+      username_pml: cleanText(row?.username_pml || ""),
+      username_sobat_pml: cleanText(row?.username_pml || ""),
+      nama_ppl: cleanText(row?.nama_ppl || ""),
+      username_ppl: cleanText(row?.username_ppl || ""),
+      username_sobat_ppl: cleanText(row?.username_ppl || ""),
+
+      kdkec: normalizeStatusSlsCode(row?.kdkec || "", 3),
+      kode_kecamatan: normalizeStatusSlsCode(row?.kdkec || "", 3),
+      kddesa: normalizeStatusSlsCode(row?.kddesa || "", 3),
+      kode_kelurahan: normalizeStatusSlsCode(row?.kddesa || "", 3),
+      kode_sls: normalizeStatusSlsCode(row?.kode_sls || "", 6),
+
+      target_keluarga: cleanText(row?.target_keluarga || ""),
+      target_usaha: cleanText(row?.target_usaha || ""),
+      target_jumlah: targetJumlah,
+      target_prelist_keluarga: cleanText(row?.target_keluarga || ""),
+      target_prelist_usaha: cleanText(row?.target_usaha || ""),
+      target_prelist_jumlah: targetJumlah,
+
+      realisasi_keluarga: cleanText(row?.realisasi_dengan_tidak_ditemukan_keluarga || ""),
+      realisasi_usaha: cleanText(row?.realisasi_dengan_tidak_ditemukan_usaha || ""),
+      realisasi_jumlah: realisasiJumlah,
+      realisasi_dengan_tidak_ditemukan_keluarga: cleanText(row?.realisasi_dengan_tidak_ditemukan_keluarga || ""),
+      realisasi_dengan_tidak_ditemukan_usaha: cleanText(row?.realisasi_dengan_tidak_ditemukan_usaha || ""),
+      realisasi_dengan_tidak_ditemukan_jumlah: realisasiJumlah,
+
+      persentase: percentageFormatted,
+      persentase_dengan_tidak_ditemukan: percentageFormatted,
+      persentase_raw: percentageSource,
+
+      realisasi_tanpa_tidak_ditemukan_keluarga: cleanText(row?.realisasi_tanpa_tidak_ditemukan_keluarga || ""),
+      realisasi_tanpa_tidak_ditemukan_usaha: cleanText(row?.realisasi_tanpa_tidak_ditemukan_usaha || ""),
+      realisasi_tanpa_tidak_ditemukan_jumlah: cleanText(row?.realisasi_tanpa_tidak_ditemukan_jumlah || ""),
+      persentase_tanpa_tidak_ditemukan: cleanText(row?.persentase_tanpa_tidak_ditemukan || ""),
+
+      keterangan: cleanText(row?.keterangan || ""),
+      status: cleanText(row?.status || ""),
+      role,
+    };
+  });
+
+  const sum = (key) => rows.reduce((total, row) => {
+    const value = parseDataPerSlsNumber(row?.[key]);
+    return total + (value == null ? 0 : value);
+  }, 0);
+
+  const targetKeluargaRaw = sum("target_keluarga");
+  const targetUsahaRaw = sum("target_usaha");
+  const targetJumlahRaw = sum("target_jumlah");
+  const realisasiKeluargaRaw = sum("realisasi_keluarga");
+  const realisasiUsahaRaw = sum("realisasi_usaha");
+  const realisasiJumlahRaw = sum("realisasi_jumlah");
+  const percentageRaw = targetJumlahRaw > 0
+    ? (realisasiJumlahRaw / targetJumlahRaw) * 100
+    : null;
+
+  const total = {
+    target_keluarga: rows.length ? formatDataPerSlsAggregate(targetKeluargaRaw) : "",
+    target_usaha: rows.length ? formatDataPerSlsAggregate(targetUsahaRaw) : "",
+    target_jumlah: rows.length ? formatDataPerSlsAggregate(targetJumlahRaw) : "",
+    realisasi_keluarga: rows.length ? formatDataPerSlsAggregate(realisasiKeluargaRaw) : "",
+    realisasi_usaha: rows.length ? formatDataPerSlsAggregate(realisasiUsahaRaw) : "",
+    realisasi_jumlah: rows.length ? formatDataPerSlsAggregate(realisasiJumlahRaw) : "",
+    persentase: percentageRaw == null ? "" : formatPercentageNumber(percentageRaw, 2),
+    persentase_raw: percentageRaw == null ? "" : percentageRaw,
+    keterangan: percentageRaw == null
+      ? ""
+      : percentageRaw >= 40
+        ? "Bisa Dibayar karena lebih dari 40%"
+        : "Belum Bisa Dibayar karena kurang dari 40%",
+  };
+
+  return { rows, total };
 }
 
 function buildLampiranStatusSlsCode(row = {}) {
@@ -5042,6 +5721,8 @@ function buildBerkasPembayaranTemplateData(formValues, record, role, nikLookup) 
   const lampiranRows = Array.isArray(record?.lampiranRows) ? record.lampiranRows : [];
   const pembayaranRows = Array.isArray(record?.pembayaranRows) ? record.pembayaranRows : [];
   const statusSlsRows = Array.isArray(record?.statusSlsRows) ? record.statusSlsRows : [];
+  const dataPerSlsRows = Array.isArray(record?.dataPerSlsRows) ? record.dataPerSlsRows : [];
+  const approveByPmlRows = Array.isArray(record?.approveByPmlRows) ? record.approveByPmlRows : [];
   const firstLampiran = lampiranRows[0] || {};
   const displayName = cleanText(
     record?.displayName || record?.bappRow?.nama || (isPml ? firstLampiran?.nama_pml : firstLampiran?.nama_ppl)
@@ -5053,11 +5734,104 @@ function buildBerkasPembayaranTemplateData(formValues, record, role, nikLookup) 
     isPml ? firstLampiran?.nomor_kontrak_pml : firstLampiran?.nomor_kontrak_ppl
   );
   // Isi tabel mengikuti sheet Lampiran, memakai pengelompokan yang sama dengan
-  // dokumen Lampiran/BAST terpisah. Sheet Pembayaran tetap dipakai untuk bagian BAPP.
-  const lampiranTableRows = buildBerkasLampiranTableRows(lampiranRows, role, pembayaranRows, statusSlsRows);
-  // Hitung rata-rata dari baris yang benar-benar tampil pada tabel, bukan dari
-  // seluruh kandidat Pembayaran. Dengan begitu denominator persis sama dengan
-  // jumlah PPL yang tampil dan baris ganda Lampiran tidak menggandakan bobot.
+  // dokumen Lampiran/BAST terpisah. Metrik target dan realisasi kemudian
+  // diperkaya dari sheet Data per SLS, khusus kolom "Dengan Tidak Ditemukan".
+  const lampiranTableRowsBase = buildBerkasLampiranTableRows(
+    lampiranRows,
+    role,
+    pembayaranRows,
+    statusSlsRows
+  );
+  const bebanKerjaBase = buildDataPerSlsWorkloadRows(dataPerSlsRows, role);
+  const bebanKerja = applyApproveByPmlToWorkload(
+    bebanKerjaBase,
+    approveByPmlRows,
+    role
+  );
+
+  const normalizeMatchKey = (value) => upperText(value).replace(/^@/, "").replace(/\s+/g, " ");
+  const emailLocalPart = (value) => {
+    const text = normalizeMatchKey(value);
+    return text.includes("@") ? text.split("@")[0] : text;
+  };
+
+  // Untuk dokumen PML, setiap baris tabel peserta mewakili satu PPL. Target,
+  // realisasi, dan persentase dijumlahkan dari seluruh SLS milik PPL tersebut.
+  // Untuk dokumen PPL, seluruh baris Data per SLS pada record adalah milik PPL itu.
+  const lampiranTableRows = lampiranTableRowsBase.map((tableRow) => {
+    const pplName = normalizeMatchKey(tableRow?.nama_ppl || tableRow?.nama || "");
+    const pplEmailLocal = emailLocalPart(tableRow?.email_ppl || tableRow?.email_pencacah || tableRow?.email || "");
+
+    const matchedSourceRows = isPml
+      ? dataPerSlsRows.filter((sourceRow) => {
+          const sourceName = normalizeMatchKey(sourceRow?.nama_ppl || "");
+          const sourceUsername = normalizeMatchKey(sourceRow?.username_ppl || "");
+          return (pplName && sourceName === pplName) ||
+            (pplEmailLocal && sourceUsername === pplEmailLocal);
+        })
+      : dataPerSlsRows;
+
+    const matchedApproveRows = isPml
+      ? approveByPmlRows.filter((approveRow) => approveRowMatchesPpl(approveRow, tableRow))
+      : [];
+
+    if (matchedSourceRows.length === 0 && matchedApproveRows.length === 0) return tableRow;
+
+    const pplWorkloadBase = buildDataPerSlsWorkloadRows(matchedSourceRows, "PPL");
+    const pplWorkload = isPml
+      ? applyApproveByPmlToWorkload(pplWorkloadBase, matchedApproveRows, "PML")
+      : pplWorkloadBase;
+    const total = pplWorkload.total || {};
+    const approveTotal = sumJumlahApprovePml(matchedApproveRows);
+    const targetForPercentage = parseDataPerSlsNumber(total.target_jumlah || tableRow?.jumlah_pre || tableRow?.prelist_total);
+    const useApproveSource = isPml && approveByPmlRows.length > 0;
+    const approveValueRaw = useApproveSource
+      ? (approveTotal.raw == null ? 0 : approveTotal.raw)
+      : null;
+    const approvePercentageRaw = useApproveSource && targetForPercentage
+      ? (approveValueRaw / targetForPercentage) * 100
+      : null;
+    const approvePercentage = useApproveSource
+      ? (approvePercentageRaw == null ? "" : formatPercentageNumber(approvePercentageRaw, 2))
+      : total.persentase;
+    const rowRealisasi = useApproveSource
+      ? formatDataPerSlsAggregate(approveValueRaw)
+      : total.realisasi_jumlah;
+
+    return {
+      ...tableRow,
+      pre_keluarga: total.target_keluarga,
+      pre_usaha: total.target_usaha,
+      jumlah_pre: total.target_jumlah,
+      target_keluarga: total.target_keluarga,
+      target_usaha: total.target_usaha,
+      target_jumlah: total.target_jumlah,
+      prelist_total: total.target_jumlah,
+      target_prelist: total.target_jumlah,
+
+      realisasi_keluarga: total.realisasi_keluarga,
+      realisasi_usaha: total.realisasi_usaha,
+      jumlah_realisasi: rowRealisasi,
+      realisasi: rowRealisasi,
+      realisasi_total: rowRealisasi,
+      realisasi_hasil_pendataan: rowRealisasi,
+      jumlah_approve_pml: useApproveSource ? formatDataPerSlsAggregate(approveValueRaw) : "",
+
+      persentase: approvePercentage,
+      pesentase: approvePercentage,
+      persentase_pendataan: approvePercentage,
+      persentase_prelist: approvePercentage,
+      persentase_raw: approvePercentageRaw == null ? total.persentase_raw : approvePercentageRaw,
+      persentase_format: approvePercentage,
+      // Pemberkasan PML dan PPL tidak menampilkan keterangan/status pembayaran.
+      status: "",
+      keterangan: "",
+    };
+  });
+
+  // Hitung rata-rata dari baris yang benar-benar tampil pada tabel. Bila Data per
+  // SLS tersedia, nilai yang dirata-ratakan sudah memakai realisasi "Dengan Tidak
+  // Ditemukan", bukan lagi nilai lama dari sheet Pembayaran.
   const averagePersentase = calculateAveragePersentase(lampiranTableRows);
 
   const bappRow = record?.bappRow || {
@@ -5111,6 +5885,21 @@ function buildBerkasPembayaranTemplateData(formValues, record, role, nikLookup) 
   };
   const pembayaranRingkasan = buildPembayaranTableRow(bappRow, 0);
   const firstLampiranTableRow = lampiranTableRows[0] || {};
+  const hasDataPerSls = bebanKerja.rows.length > 0;
+  const dataPerSlsSummary = bebanKerja.total || {};
+  const summaryTargetKeluarga = hasDataPerSls ? dataPerSlsSummary.target_keluarga : "";
+  const summaryTargetUsaha = hasDataPerSls ? dataPerSlsSummary.target_usaha : "";
+  const summaryTargetJumlah = hasDataPerSls
+    ? dataPerSlsSummary.target_jumlah
+    : pembayaranRingkasan.prelist_total;
+  const summaryRealisasiKeluarga = hasDataPerSls ? dataPerSlsSummary.realisasi_keluarga : "";
+  const summaryRealisasiUsaha = hasDataPerSls ? dataPerSlsSummary.realisasi_usaha : "";
+  const summaryRealisasiJumlah = hasDataPerSls
+    ? dataPerSlsSummary.realisasi_jumlah
+    : pembayaranRingkasan.realisasi_total;
+  const summaryPersentase = hasDataPerSls
+    ? dataPerSlsSummary.persentase
+    : pembayaranRingkasan.persentase_pendataan;
 
   // Variabel tanpa prefix dipertahankan untuk kompatibilitas dengan template lama.
   // Variabel berprefix memberi ruang bagi template gabungan saat ada nama tag yang
@@ -5147,12 +5936,31 @@ function buildBerkasPembayaranTemplateData(formValues, record, role, nikLookup) 
     sls_selesai_sedang_dikerjakan: pembayaranRingkasan.sls_ongoing,
     persentase_sls: pembayaranRingkasan.persentase_sls,
     tanggal_screenshot: pembayaranRingkasan.tanggal_screenshot,
-    target_prelist: pembayaranRingkasan.target_prelist,
-    prelist_total: pembayaranRingkasan.prelist_total,
-    realisasi_hasil_pendataan: pembayaranRingkasan.realisasi_hasil_pendataan,
-    realisasi_total: pembayaranRingkasan.realisasi_total,
-    persentase_prelist: pembayaranRingkasan.persentase_prelist,
-    persentase_pendataan: pembayaranRingkasan.persentase_pendataan,
+    // Ringkasan target/realisasi memakai agregat sheet Data per SLS bila tersedia.
+    // Realisasi yang dipakai adalah kolom "Dengan Tidak Ditemukan".
+    pre_keluarga: summaryTargetKeluarga,
+    pre_usaha: summaryTargetUsaha,
+    jumlah_pre: summaryTargetJumlah,
+    target_keluarga: summaryTargetKeluarga,
+    target_usaha: summaryTargetUsaha,
+    target_jumlah: summaryTargetJumlah,
+    target_prelist: summaryTargetJumlah,
+    prelist_total: summaryTargetJumlah,
+
+    realisasi_keluarga: summaryRealisasiKeluarga,
+    realisasi_usaha: summaryRealisasiUsaha,
+    jumlah_realisasi: summaryRealisasiJumlah,
+    realisasi: summaryRealisasiJumlah,
+    realisasi_hasil_pendataan: summaryRealisasiJumlah,
+    realisasi_total: summaryRealisasiJumlah,
+
+    persentase: summaryPersentase,
+    pesentase: summaryPersentase,
+    persentase_prelist: summaryPersentase,
+    persentase_pendataan: summaryPersentase,
+    // Keterangan/status tidak ditulis pada pemberkasan PML maupun PPL.
+    status: "",
+    keterangan: "",
     flag: pembayaranRingkasan.flag,
     kecamatan: pembayaranRingkasan.kecamatan,
 
@@ -5168,6 +5976,25 @@ function buildBerkasPembayaranTemplateData(formValues, record, role, nikLookup) 
     jumlah_status_sls_sumber: statusSlsRows.length,
     jumlah_baris_lampiran_sebelum_filter: lampiranRows.length,
     jumlah_baris_tabel_setelah_filter: lampiranTableRows.length,
+
+    // Data tabel beban kerja pada halaman terakhir, langsung dari sheet Data per SLS.
+    jumlah_baris_data_per_sls: bebanKerja.rows.length,
+    beban_kerja_rows: bebanKerja.rows,
+    data_per_sls_rows: bebanKerja.rows,
+    rincian_data_per_sls: bebanKerja.rows,
+    beban_kerja_total: bebanKerja.total,
+    total_target_keluarga: bebanKerja.total.target_keluarga,
+    total_target_usaha: bebanKerja.total.target_usaha,
+    total_target_jumlah: bebanKerja.total.target_jumlah,
+    total_realisasi_keluarga: bebanKerja.total.realisasi_keluarga,
+    total_realisasi_usaha: bebanKerja.total.realisasi_usaha,
+    total_realisasi_jumlah: bebanKerja.total.realisasi_jumlah,
+    jumlah_approve_pml: isPml ? bebanKerja.total.realisasi_jumlah : "",
+    total_jumlah_approve_pml: isPml ? bebanKerja.total.realisasi_jumlah : "",
+    total_persentase_data_per_sls: bebanKerja.total.persentase,
+    keterangan_pembayaran_data_per_sls: "",
+    sumber_realisasi_pml: isPml && approveByPmlRows.length > 0 ? "Approve by PML" : "Data per SLS",
+    jumlah_baris_approve_by_pml: approveByPmlRows.length,
 
     // Seluruh alias loop tabel memakai struktur sheet Lampiran. Kolom progres pada
     // tiap peserta diperkaya dari sheet Pembayaran melalui Email Pencacah/Nama PPL.
@@ -5186,10 +6013,259 @@ function buildBerkasPembayaranTemplateData(formValues, record, role, nikLookup) 
   };
 }
 
+const WORDPROCESSING_ML_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+const XML_NS = "http://www.w3.org/XML/1998/namespace";
+
+function wordLocalName(node) {
+  return String(node?.localName || node?.nodeName || "").split(":").pop();
+}
+
+function getDirectWordChildren(node, localName) {
+  return Array.from(node?.childNodes || []).filter(
+    (child) => child?.nodeType === 1 && wordLocalName(child) === localName
+  );
+}
+
+function getWordNodeText(node) {
+  const textNodes = node?.getElementsByTagNameNS
+    ? Array.from(node.getElementsByTagNameNS(WORDPROCESSING_ML_NS, "t"))
+    : Array.from(node?.getElementsByTagName?.("w:t") || []);
+  return textNodes.map((item) => item.textContent || "").join("");
+}
+
+function createWordElement(xmlDoc, localName) {
+  return xmlDoc.createElementNS(WORDPROCESSING_ML_NS, `w:${localName}`);
+}
+
+function setWordCellText(xmlDoc, cell, value) {
+  if (!cell) return;
+
+  const text = String(value ?? "");
+  const paragraphs = Array.from(
+    cell.getElementsByTagNameNS(WORDPROCESSING_ML_NS, "p")
+  );
+  let paragraph = paragraphs[0];
+
+  if (!paragraph) {
+    paragraph = createWordElement(xmlDoc, "p");
+    cell.appendChild(paragraph);
+  }
+
+  const firstRun = Array.from(
+    paragraph.getElementsByTagNameNS(WORDPROCESSING_ML_NS, "r")
+  )[0];
+  const firstRunProperties = firstRun
+    ? Array.from(firstRun.childNodes || []).find(
+        (child) => child?.nodeType === 1 && wordLocalName(child) === "rPr"
+      )
+    : null;
+
+  // Pertahankan properti paragraf, lalu ganti isi sel dengan satu run baru.
+  for (const child of Array.from(paragraph.childNodes || [])) {
+    if (!(child?.nodeType === 1 && wordLocalName(child) === "pPr")) {
+      paragraph.removeChild(child);
+    }
+  }
+
+  // Hapus paragraf tambahan dari sel template agar tinggi baris tidak membengkak.
+  for (const extraParagraph of paragraphs.slice(1)) {
+    extraParagraph.parentNode?.removeChild(extraParagraph);
+  }
+
+  const run = createWordElement(xmlDoc, "r");
+  if (firstRunProperties) run.appendChild(firstRunProperties.cloneNode(true));
+
+  const textNode = createWordElement(xmlDoc, "t");
+  if (/^\s|\s$/.test(text)) textNode.setAttributeNS(XML_NS, "xml:space", "preserve");
+  textNode.textContent = text;
+  run.appendChild(textNode);
+  paragraph.appendChild(run);
+}
+
+function setWordRowValues(xmlDoc, rowNode, values = []) {
+  const cells = getDirectWordChildren(rowNode, "tc");
+  values.forEach((value, index) => {
+    if (cells[index]) setWordCellText(xmlDoc, cells[index], value);
+  });
+}
+
+function fillBebanKerjaTableInDocxZip(zip, workloadRows = [], workloadTotal = {}) {
+  const documentFile = zip?.file?.("word/document.xml");
+  if (!documentFile || typeof DOMParser === "undefined" || typeof XMLSerializer === "undefined") {
+    console.warn("Tabel beban kerja tidak dapat diisi karena document.xml atau XML DOM tidak tersedia.");
+    return;
+  }
+
+  const xmlText = documentFile.asText();
+  const xmlDoc = new DOMParser().parseFromString(xmlText, "application/xml");
+  const parserErrors = xmlDoc.getElementsByTagName("parsererror");
+  if (parserErrors.length > 0) {
+    console.warn("Gagal membaca document.xml untuk mengisi tabel beban kerja.");
+    return;
+  }
+
+  const tables = Array.from(
+    xmlDoc.getElementsByTagNameNS(WORDPROCESSING_ML_NS, "tbl")
+  );
+  const targetTable = tables.find((table) => {
+    const tableText = getWordNodeText(table).replace(/\s+/g, " ").toUpperCase();
+    return tableText.includes("TARGET PRELIST AWAL") &&
+      tableText.includes("USERNAME SOBAT") &&
+      tableText.includes("SLS/SUB-SLS");
+  });
+
+  if (!targetTable) {
+    console.warn("Tabel Beban Kerja pada halaman terakhir template tidak ditemukan.");
+    return;
+  }
+
+  const tableRows = getDirectWordChildren(targetTable, "tr");
+  if (tableRows.length < 5) {
+    console.warn("Struktur tabel Beban Kerja tidak sesuai template.");
+    return;
+  }
+
+  // Tiga baris pertama adalah header. Baris dengan teks "Jumlah" adalah footer.
+  // Template PPL memiliki 16 kolom detail, sedangkan template PML yang dikirim
+  // memiliki 14 kolom detail. Keduanya ditangani tanpa mengubah format Word.
+  const headerRowCount = 3;
+  let totalRow = tableRows.find((row, index) => {
+    if (index < headerRowCount) return false;
+    const cells = getDirectWordChildren(row, "tc");
+    const firstCellText = getWordNodeText(cells[0] || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toUpperCase();
+    return firstCellText === "JUMLAH";
+  });
+  if (!totalRow) totalRow = tableRows[tableRows.length - 1];
+
+  const totalRowIndex = tableRows.indexOf(totalRow);
+  const candidateDetailRows = tableRows.slice(headerRowCount, totalRowIndex);
+  const templateRow = candidateDetailRows
+    .map((row) => ({ row, count: getDirectWordChildren(row, "tc").length }))
+    .sort((a, b) => b.count - a.count)[0]?.row;
+
+  if (!templateRow) {
+    console.warn("Baris template kosong pada tabel Beban Kerja tidak ditemukan.");
+    return;
+  }
+
+  const detailColumnCount = getDirectWordChildren(templateRow, "tc").length;
+  if (![14, 16].includes(detailColumnCount)) {
+    console.warn(`Jumlah kolom tabel Beban Kerja tidak didukung: ${detailColumnCount}.`);
+    return;
+  }
+
+  const templateClone = templateRow.cloneNode(true);
+  const minimumTemplateRows = Math.max(totalRowIndex - headerRowCount, 1);
+  for (const row of candidateDetailRows) {
+    targetTable.removeChild(row);
+  }
+
+  const buildDetailValues = (row) => {
+    const common = [
+      row.no,
+      row.nama_pml,
+      row.username_pml,
+      row.nama_ppl,
+      row.username_ppl,
+      row.kdkec,
+      row.kddesa,
+      row.kode_sls,
+      row.target_keluarga,
+      row.target_usaha,
+      row.target_jumlah,
+    ];
+
+    // PPL: Realisasi Keluarga, Usaha, Jumlah.
+    if (detailColumnCount === 16) {
+      return [
+        ...common,
+        row.realisasi_keluarga,
+        row.realisasi_usaha,
+        row.realisasi_jumlah,
+        row.persentase,
+        "", // Kolom Keterangan PPL dikosongkan.
+      ];
+    }
+
+    // PML: template hanya menyediakan satu kolom Realisasi, sehingga dipakai
+    // nilai Jumlah dari blok "Dengan Tidak Ditemukan".
+    return [
+      ...common,
+      row.realisasi_jumlah,
+      row.persentase,
+      "", // Kolom Keterangan PML dikosongkan.
+    ];
+  };
+
+  // Pertahankan minimal jumlah baris bawaan template agar posisi footer stabil.
+  const rowCountToInsert = Math.max(workloadRows.length, minimumTemplateRows);
+  for (let rowIndex = 0; rowIndex < rowCountToInsert; rowIndex++) {
+    const row = workloadRows[rowIndex] || null;
+    const clonedRow = templateClone.cloneNode(true);
+    const values = row
+      ? buildDetailValues(row)
+      : Array(detailColumnCount).fill("");
+
+    setWordRowValues(xmlDoc, clonedRow, values);
+    targetTable.insertBefore(clonedRow, totalRow);
+  }
+
+  const totalCellCount = getDirectWordChildren(totalRow, "tc").length;
+  const hasRows = workloadRows.length > 0;
+  const valueOrBlank = (value) => hasRows ? value : "";
+
+  // Footer PPL memiliki 9 sel langsung: satu sel gabungan + 8 nilai.
+  // Footer PML memiliki 7 sel langsung: satu sel gabungan + 6 nilai.
+  const totalValues = detailColumnCount === 16
+    ? [
+        "Jumlah",
+        valueOrBlank(workloadTotal?.target_keluarga),
+        valueOrBlank(workloadTotal?.target_usaha),
+        valueOrBlank(workloadTotal?.target_jumlah),
+        valueOrBlank(workloadTotal?.realisasi_keluarga),
+        valueOrBlank(workloadTotal?.realisasi_usaha),
+        valueOrBlank(workloadTotal?.realisasi_jumlah),
+        valueOrBlank(workloadTotal?.persentase),
+        "", // Footer Keterangan PPL dikosongkan.
+      ]
+    : [
+        "Jumlah",
+        valueOrBlank(workloadTotal?.target_keluarga),
+        valueOrBlank(workloadTotal?.target_usaha),
+        valueOrBlank(workloadTotal?.target_jumlah),
+        valueOrBlank(workloadTotal?.realisasi_jumlah),
+        valueOrBlank(workloadTotal?.persentase),
+        "", // Footer Keterangan PML dikosongkan.
+      ];
+
+  setWordRowValues(xmlDoc, totalRow, totalValues.slice(0, totalCellCount));
+
+  const serialized = new XMLSerializer().serializeToString(xmlDoc);
+  zip.file("word/document.xml", serialized);
+}
+
 function createBerkasPembayaranBlobFromTemplateBuffer(templateArrayBuffer, formValues, record, role, nikLookup) {
   const zip = new PizZip(templateArrayBuffer);
   const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
-  doc.render(buildBerkasPembayaranTemplateData(formValues || {}, record || {}, role, nikLookup));
+  const templateData = buildBerkasPembayaranTemplateData(
+    formValues || {},
+    record || {},
+    role,
+    nikLookup
+  );
+  doc.render(templateData);
+
+  // Template tetap dipakai apa adanya. Kode hanya mengganti baris kosong pada tabel
+  // Beban Kerja halaman terakhir dengan data dari sheet Data per SLS.
+  fillBebanKerjaTableInDocxZip(
+    doc.getZip(),
+    templateData.beban_kerja_rows || [],
+    templateData.beban_kerja_total || {}
+  );
+
   return doc.getZip().generate({
     type: "blob",
     mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
