@@ -33,6 +33,13 @@ const DOC_TYPES = [
   { id: "surat-pernyataan-penyelesaian-lapangan", icon: <FileText />, label: "Surat Pernyataan Penyelesaian Lapangan", desc: "Khusus PML", color: "amber" },
   { id: "lampiran",      icon: <FileText />,      label: "Lampiran", desc: "Lampiran SPK PML/PPL", color: "amber" },
   { id: "gabungan-pembayaran", icon: <Receipt />, label: "Gabungan Administrasi Pembayaran", desc: "Generate satu berkas pembayaran lengkap per PML atau PPL", color: "amber" },
+  {
+  id: "surat-kepala",
+  icon: <FileText />,
+  label: "Surat Kepala",
+  desc: "SPEPL Kepala BPS (PML & PPL)",
+  color: "amber",
+},
 ];
 
 // ─── XLSX PARSER ─────────────────────────────────────────────────────────────
@@ -1173,6 +1180,8 @@ const BAST_PML_TEMPLATE_URL = "/templates/BAST PML.docx";
 const BAST_PPL_TEMPLATE_URL = "/templates/BAST PPL.docx";
 const BERKAS_PEMBAYARAN_PML_TEMPLATE_URL = "/templates/BERKAS PEMBAYARAN PML.docx";
 const BERKAS_PEMBAYARAN_PPL_TEMPLATE_URL = "/templates/BERKAS PEMBAYARAN PPL.docx";
+const SURAT_KEPALA_TEMPLATE_URL = "/templates/SURAT PERNYATAAN KEPALA BPS.docx";
+
 
 // ─── TEMPLATE DATA BUILDERS ───────────────────────────────────────────────────
 
@@ -2965,6 +2974,9 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
   const [bastGenerating,          setBastGenerating]          = useState(false);
   const [bastProgressText,        setBastProgressText]        = useState("");
   const [bastSelectionRows,       setBastSelectionRows]       = useState([]);
+  const [suratKepalaSelectionRows, setSuratKepalaSelectionRows] = useState([]);
+  const [suratKepalaGenerating, setSuratKepalaGenerating] = useState(false);
+  const [suratKepalaProgressText, setSuratKepalaProgressText] = useState("");
   const [suratPenyelesaianLapanganSelect, setSuratPenyelesaianLapanganSelect] = useState("");
   const [suratPenyelesaianLapanganGenerating, setSuratPenyelesaianLapanganGenerating] = useState(false);
   const [suratPenyelesaianLapanganProgressText, setSuratPenyelesaianLapanganProgressText] = useState("");
@@ -3151,6 +3163,11 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
     }
 
     if (docType.id === "gabungan-pembayaran") {
+      e.preventDefault();
+      return;
+    }
+
+    if (docType.id === "surat-kepala") {
       e.preventDefault();
       return;
     }
@@ -4451,6 +4468,72 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
               <p className="mt-1">PML unik (email): {new Set(rows.map(r => upperText(cleanText(r.email_pengawas))).filter(Boolean)).size}</p>
               <p className="mt-1">PPL unik (email): {new Set(rows.map(r => upperText(cleanText(r.email_pencacah))).filter(Boolean)).size}</p>
             </div>
+          </div>
+        );
+      }
+
+      case "surat-kepala": {
+        return (
+          <div className="space-y-5">
+            <div className="rounded-3xl border border-orange-100 bg-orange-50/70 p-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-700">
+                Surat Pernyataan Evaluasi Pelaksanaan Lapangan (Kepala BPS)
+              </p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                Unggah Excel berisi kolom Nama dan/atau Email untuk mengisi tabel lampiran.
+                Satu file akan berisi semua nama yang cocok: PML tampil lebih dulu (A-Z),
+                lalu PPL (A-Z). Target Prelist &amp; Jabatan diambil dari sheet Pembayaran;
+                Realisasi PML dari kolom Realisasi Total, Realisasi PPL dijumlah dari
+                sheet Data per SLS.
+              </p>
+            </div>
+      
+            <SelectionUploadPanel
+              selectionRows={suratKepalaSelectionRows}
+              onSelectionLoaded={setSuratKepalaSelectionRows}
+              onClear={() => setSuratKepalaSelectionRows([])}
+              hint="Kolom Nama dan/atau Email dicocokkan ke sheet Pembayaran."
+            />
+      
+            {suratKepalaGenerating && (
+              <div className="flex items-center gap-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700">
+                <LoaderCircle size={18} className="animate-spin" />
+                <span>{suratKepalaProgressText || "Sedang membuat surat..."}</span>
+              </div>
+            )}
+      
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  if (suratKepalaSelectionRows.length === 0) {
+                    throw new Error("Unggah file Excel Nama/Email terlebih dahulu.");
+                  }
+                  const { rows, skipped } = buildSuratKepalaRows(suratKepalaSelectionRows, bappData, dataPerSlsData);
+                  if (rows.length === 0) {
+                    throw new Error("Tidak ada baris yang cocok untuk dimasukkan ke lampiran.");
+                  }
+                  setSuratKepalaGenerating(true);
+                  setSuratKepalaProgressText(`Menyiapkan surat untuk ${rows.length} petugas...`);
+                  await generateSuratKepala(SURAT_KEPALA_TEMPLATE_URL, rows);
+                  if (skipped.length > 0) {
+                    alert(
+                      `Surat berhasil dibuat. ${skipped.length} baris dilewati:\n\n` +
+                      skipped.map((s) => `- ${s.nama || s.email}: ${s.alasan}`).join("\n")
+                    );
+                  }
+                } catch (err) {
+                  alert(err.message || err);
+                } finally {
+                  setSuratKepalaGenerating(false);
+                  setSuratKepalaProgressText("");
+                }
+              }}
+              disabled={suratKepalaSelectionRows.length === 0 || suratKepalaGenerating}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3 text-sm font-black text-white shadow transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-orange-200"
+            >
+              <Download size={16} /> Generate Surat Kepala
+            </button>
           </div>
         );
       }
@@ -6329,6 +6412,102 @@ async function generateBerkasPembayaran(templateUrl, formValues, records, role, 
       `BERKAS PEMBAYARAN ${role} ${cleanText(formValues?.tanggal_surat || "SE2026")}${batchSuffix}.zip`
     );
   }
+}
+
+function buildSuratKepalaRows(selectionRows = [], bappData = [], dataPerSlsData = []) {
+  const keySet = buildSelectionKeySet(selectionRows);
+  const rows = [];
+  const skipped = [];
+ 
+  for (const sel of selectionRows) {
+    const bappRow = (bappData || []).find((r) => rowMatchesSelection(keySet, r.nama, r.email) &&
+      (upperText(r.jabatan_raw || r.jabatan) === "PML" || upperText(r.jabatan_raw || r.jabatan) === "PPL") &&
+      // pastikan baris Pembayaran ini yang benar-benar cocok dengan entri sel ini
+      (cleanText(sel.email) ? upperText(cleanText(sel.email)) === upperText(cleanText(r.email)) : upperText(cleanText(sel.nama)) === upperText(cleanText(r.nama)))
+    );
+ 
+    if (!bappRow) {
+      skipped.push({ nama: sel.nama, email: sel.email, alasan: "Tidak ditemukan di sheet Pembayaran (atau jabatan bukan PML/PPL)" });
+      continue;
+    }
+ 
+    const jabatan = upperText(bappRow.jabatan_raw || bappRow.jabatan);
+    const target = parseDataPerSlsNumber(bappRow.prelist_total) || 0;
+    let realisasi = 0;
+ 
+    if (jabatan === "PML") {
+      realisasi = parseDataPerSlsNumber(bappRow.realisasi_total) || 0;
+    } else {
+      // PPL: jumlahkan semua baris Data per SLS miliknya
+      const namaKey = upperText(bappRow.nama);
+      const emailLocal = upperText(cleanText(bappRow.email)).split("@")[0];
+      const matchedSlsRows = (dataPerSlsData || []).filter((r) => {
+        const rowName = upperText(r.nama_ppl || "");
+        const rowUsername = upperText(r.username_ppl || "");
+        return (namaKey && rowName === namaKey) || (emailLocal && rowUsername === emailLocal);
+      });
+      if (matchedSlsRows.length === 0) {
+        skipped.push({ nama: bappRow.nama, email: bappRow.email, alasan: "PPL tidak ditemukan di sheet Data per SLS" });
+        continue;
+      }
+      realisasi = matchedSlsRows.reduce(
+        (sum, r) => sum + (parseDataPerSlsNumber(r.realisasi_dengan_tidak_ditemukan_jumlah) || 0),
+        0
+      );
+    }
+ 
+    rows.push({
+      nama: cleanText(bappRow.nama),
+      jabatan,
+      target,
+      realisasi,
+      persentase: target ? (realisasi / target) * 100 : 0,
+    });
+  }
+ 
+  const pml = rows.filter((r) => r.jabatan === "PML")
+    .sort((a, b) => a.nama.localeCompare(b.nama, "id-ID", { sensitivity: "base" }));
+  const ppl = rows.filter((r) => r.jabatan === "PPL")
+    .sort((a, b) => a.nama.localeCompare(b.nama, "id-ID", { sensitivity: "base" }));
+ 
+  return { rows: [...pml, ...ppl], skipped };
+}
+ 
+function buildSuratKepalaTemplateData(rows = []) {
+  const totalTarget = rows.reduce((s, r) => s + r.target, 0);
+  const totalRealisasi = rows.reduce((s, r) => s + r.realisasi, 0);
+  const totalPersentase = totalTarget ? (totalRealisasi / totalTarget) * 100 : 0;
+
+  return {
+    peserta: rows.map((r, idx) => ({
+      no: idx + 1,                         // ✅ tag {no}
+      nama: r.nama,
+      nama_petugas: r.nama,                // ✅ tag {nama_petugas}
+      jabatan: r.jabatan,
+      target_prelist: formatRupiah(r.target),
+      realisasi: formatRupiah(r.realisasi),
+      persentase: `${formatPercentageNumber(r.persentase, 2)}%`,
+    })),
+    total_target_prelist: formatRupiah(totalTarget),
+    total_realisasi: formatRupiah(totalRealisasi),
+    total_persentase: `${formatPercentageNumber(totalPersentase, 2)}%`,
+    average_persentase: `${formatPercentageNumber(totalPersentase, 2)}%`,  // ✅ tag {average_persentase}
+  };
+}
+ 
+async function generateSuratKepala(templateUrl, rows) {
+  if (!rows || rows.length === 0) throw new Error("Tidak ada data untuk Surat Kepala.");
+  const response = await fetch(templateUrl);
+  if (!response.ok) throw new Error(`Gagal memuat template Surat Kepala: ${response.status} ${response.statusText}`);
+  const arrayBuffer = await response.arrayBuffer();
+  const zip = new PizZip(arrayBuffer);
+  const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+  doc.render(buildSuratKepalaTemplateData(rows));
+  const blob = doc.getZip().generate({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+  saveAs(blob, `Surat Pernyataan Kepala BPS - ${rows.length} Petugas.docx`);
 }
 
 // ─── DOC PREVIEW (dispatcher) ─────────────────────────────────────────────────
