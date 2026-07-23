@@ -5972,7 +5972,7 @@ function buildBerkasPembayaranTemplateData(formValues, record, role, nikLookup) 
     const total = pplWorkload.total || {};
     const approveTotal = sumJumlahApprovePml(matchedApproveRows);
     const targetForPercentage = parseDataPerSlsNumber(total.target_jumlah || tableRow?.jumlah_pre || tableRow?.prelist_total);
-    const useApproveSource = isPml && approveByPmlRows.length > 0;
+    const useApproveSource = isPml && matchedApproveRows.length > 0;
     const approveValueRaw = useApproveSource
       ? (approveTotal.raw == null ? 0 : approveTotal.raw)
       : null;
