@@ -15,6 +15,7 @@ import * as XLSX from "xlsx";
 import PizZip from "pizzip";
 import JSZip from "jszip";
 import Docxtemplater from "docxtemplater";
+import ImageModule from "docxtemplater-image-module-free";
 import { saveAs } from "file-saver";
 import { renderAsync } from "docx-preview";
 
@@ -488,7 +489,357 @@ function normalizeApproveByPmlRow(row = {}) {
     submitted_by_role: get("submitted by 1", "submitted by_1", "role submitted by", "submitted by role"),
     waktu_submit: get("waktu submit", "waktu_submit"),
     catatan: get("catatan", "keterangan"),
+    // 🔥 BARU: kolom "Foto Bukti" bisa berisi lebih dari satu link (dipisah baris
+    // baru/koma/titik koma). Disimpan sebagai array URL, siap dipakai loop gambar.
+    foto_bukti: splitFotoBuktiUrls(get("foto bukti", "foto_bukti", "link foto", "foto")),
   };
+}
+
+// ─── FOTO BUKTI (GOOGLE DRIVE) ───────────────────────────────────────────────
+// ─── FOTO BUKTI DARI SPREADSHEET TERPISAH (Database SLS) ────────────────────
+// Link foto tidak ada di sheet "Approve by PML" yang dipakai utama, tapi ada di
+// spreadsheet lain bernama "Database SLS [JANGAN DIUBAH]", tab "Submission-Testing".
+// Data ini diambil terpisah lalu digabungkan ke approveByPmlRows berdasarkan
+// Email PML + Email PPL.
+const FOTO_BUKTI_SPREADSHEET_ID = "1U694SejnIYezDRgy6Ao_1Moik4ckW7iMBWJeOmgpkcI";
+const FOTO_BUKTI_SPREADSHEET_EXPORT_URL = `https://docs.google.com/spreadsheets/d/${FOTO_BUKTI_SPREADSHEET_ID}/export?format=xlsx`;
+const FOTO_BUKTI_SHEET_NAME = "Submission-Testing";
+
+// Cache supaya spreadsheet foto tidak di-fetch berulang kali dalam satu sesi.
+let fotoBuktiDatabaseSlsCache = null;
+
+function normalizeFotoBuktiRow(row = {}) {
+  const normalized = {};
+  Object.entries(row || {}).forEach(([key, value]) => {
+    const normalizedKey = String(key ?? "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+    normalized[normalizedKey] = cleanDataPerSlsCell(value);
+  });
+  const get = (...keys) => {
+    for (const key of keys) {
+      const value = normalized[String(key ?? "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ")];
+      if (cleanDataPerSlsCell(value)) return cleanDataPerSlsCell(value);
+    }
+    return "";
+  };
+  return {
+    email_ppl: get("email ppl", "email_ppl"),
+    email_pml: get("email pml", "email_pml"),
+    foto_bukti: splitFotoBuktiUrls(get("foto bukti", "foto_bukti", "link foto", "foto")),
+  };
+}
+
+async function fetchFotoBuktiRowsFromDatabaseSls() {
+  if (fotoBuktiDatabaseSlsCache) return fotoBuktiDatabaseSlsCache;
+
+  const response = await fetch(FOTO_BUKTI_SPREADSHEET_EXPORT_URL);
+  if (!response.ok) throw new Error(`Gagal memuat Database SLS: ${response.status} ${response.statusText}`);
+  const arrayBuffer = await response.arrayBuffer();
+  const workbook = XLSX.read(arrayBuffer, { type: "array" });
+
+  const sheetName = workbook.SheetNames.find(
+    (name) => String(name ?? "").trim().toLowerCase() === FOTO_BUKTI_SHEET_NAME.toLowerCase()
+  );
+  if (!sheetName) {
+    console.warn(`Sheet '${FOTO_BUKTI_SHEET_NAME}' tidak ditemukan di Database SLS. Sheet tersedia:`, workbook.SheetNames);
+    fotoBuktiDatabaseSlsCache = [];
+    return fotoBuktiDatabaseSlsCache;
+  }
+
+  const sheet = workbook.Sheets[sheetName];
+  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+  const rows = raw.map(normalizeFotoBuktiRow).filter((row) => row.email_pml || row.email_ppl);
+
+  fotoBuktiDatabaseSlsCache = rows;
+  return rows;
+}
+
+// Map: "EMAIL_PML::EMAIL_PPL" -> Set url foto (satu pasangan PML+PPL bisa punya
+// beberapa foto dari beberapa baris SLS berbeda).
+function buildFotoBuktiMapByPmlPpl(fotoBuktiRows = []) {
+  const map = new Map();
+  for (const row of fotoBuktiRows || []) {
+    const emailPml = upperText(row.email_pml);
+    const emailPpl = upperText(row.email_ppl);
+    if (!emailPml && !emailPpl) continue;
+    const key = `${emailPml}::${emailPpl}`;
+    if (!map.has(key)) map.set(key, new Set());
+    const set = map.get(key);
+    for (const url of row.foto_bukti || []) set.add(url);
+  }
+  return map;
+}
+
+function mergeFotoBuktiIntoApproveByPmlRows(approveByPmlRows = [], fotoBuktiMap) {
+  if (!fotoBuktiMap || fotoBuktiMap.size === 0) return approveByPmlRows;
+  return (approveByPmlRows || []).map((row) => {
+    const key = `${upperText(row.email_pml)}::${upperText(row.email_ppl)}`;
+    const urls = fotoBuktiMap.get(key);
+    if (!urls || urls.size === 0) return row;
+    const merged = new Set([...(row.foto_bukti || []), ...urls]);
+    return { ...row, foto_bukti: [...merged] };
+  });
+}
+
+async function enrichApproveByPmlWithFotoBukti(approveByPmlRows = []) {
+  try {
+    const fotoBuktiRows = await fetchFotoBuktiRowsFromDatabaseSls();
+    const fotoBuktiMap = buildFotoBuktiMapByPmlPpl(fotoBuktiRows);
+    return mergeFotoBuktiIntoApproveByPmlRows(approveByPmlRows, fotoBuktiMap);
+  } catch (err) {
+    console.warn("Gagal memuat foto dari Database SLS:", err.message);
+    return approveByPmlRows;
+  }
+}
+
+function splitFotoBuktiUrls(value) {
+  return String(value ?? "")
+    .split(/[\n,;]+/)
+    .map((item) => item.trim())
+    .filter((item) => /^https?:\/\//i.test(item));
+}
+
+function chunkFotoBuktiIntoRows(fotoEntries = [], perRow = 3) {
+  // Satu object = satu baris tabel Word dengan 3 kolom tetap.
+  // Contoh 5 foto => baris 1: foto1-3, baris 2: foto4-5 + satu slot kosong.
+  const entries = Array.isArray(fotoEntries)
+    ? fotoEntries.filter(Boolean)
+    : [];
+
+  const rows = [];
+
+  for (let i = 0; i < entries.length; i += perRow) {
+    const slice = entries.slice(i, i + perRow);
+
+    rows.push({
+      foto1: getFotoUrlFromTagValue(slice[0]),
+      foto2: getFotoUrlFromTagValue(slice[1]),
+      foto3: getFotoUrlFromTagValue(slice[2]),
+    });
+  }
+
+  return rows;
+}
+
+function extractGoogleDriveFileId(url) {
+  const text = String(url ?? "");
+  const patterns = [/\/d\/([a-zA-Z0-9_-]{15,})/, /[?&]id=([a-zA-Z0-9_-]{15,})/];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return match[1];
+  }
+  return "";
+}
+
+// Beberapa bentuk URL Google Drive dicoba berurutan karena tidak semua endpoint
+// selalu mengizinkan akses langsung (CORS) dari browser.
+function buildGoogleDriveImageUrlCandidates(url) {
+  const fileId = extractGoogleDriveFileId(url);
+  const candidates = [];
+  if (fileId) {
+    candidates.push(`https://lh3.googleusercontent.com/d/${fileId}`);
+    candidates.push(`https://drive.google.com/uc?export=view&id=${fileId}`);
+    candidates.push(`https://drive.google.com/uc?export=download&id=${fileId}`);
+  }
+  if (url) candidates.push(url);
+  return candidates;
+}
+
+// Cache supaya foto yang sama tidak diunduh berulang kali.
+const fotoBuktiArrayBufferCache = new Map();
+
+// PNG transparan 1x1 sebagai fallback, dipakai bila sebuah foto gagal diunduh
+// (link rusak/tidak publik) supaya proses generate dokumen tidak gagal total.
+const FALLBACK_FOTO_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+function base64ToArrayBuffer(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+async function fetchFotoBuktiArrayBuffer(url) {
+  const key = String(url ?? "").trim();
+  if (!key) return null;
+  if (fotoBuktiArrayBufferCache.has(key)) return fotoBuktiArrayBufferCache.get(key);
+
+  let result = null;
+  for (const candidateUrl of buildGoogleDriveImageUrlCandidates(key)) {
+    try {
+      const response = await fetch(candidateUrl);
+      if (!response.ok) continue;
+      const buffer = await response.arrayBuffer();
+      if (buffer && buffer.byteLength > 0) {
+        result = buffer;
+        break;
+      }
+    } catch (err) {
+      console.warn(`Gagal memuat foto bukti dari ${candidateUrl}:`, err);
+    }
+  }
+
+  fotoBuktiArrayBufferCache.set(key, result);
+  return result;
+}
+
+
+// ---------------------------------------------------------------------------
+// FIX PPL: NORMALISASI TAG FOTO + PREFETCH SEBELUM DOCXTEMPLATER RENDER
+// ---------------------------------------------------------------------------
+// docxtemplater-image-module-free dapat bermasalah ketika getImage() async
+// dipanggil di dalam loop gambar. Karena itu semua foto diunduh lebih dulu,
+// disimpan di cache, kemudian image module membaca cache secara synchronous.
+function getFotoUrlFromTagValue(tagValue) {
+  if (!tagValue) return "";
+
+  if (typeof tagValue === "string") {
+    return tagValue.trim();
+  }
+
+  if (typeof tagValue === "object" && tagValue.url) {
+    return String(tagValue.url).trim();
+  }
+
+  return "";
+}
+
+function collectFotoUrlsFromTemplateData(templateData = {}) {
+  const urls = new Set();
+
+  const addUrl = (value) => {
+    const url = getFotoUrlFromTagValue(value);
+    if (url && /^https?:\/\//i.test(url)) {
+      urls.add(url);
+    }
+  };
+
+  // Kompatibilitas dengan struktur foto lama.
+  for (const item of templateData?.foto || []) {
+    addUrl(item);
+  }
+
+  for (const item of templateData?.foto_bukti || []) {
+    addUrl(item);
+  }
+
+  // Struktur grid baru: 3 foto per baris.
+  for (const row of templateData?.foto_rows || []) {
+    addUrl(row?.foto1);
+    addUrl(row?.foto2);
+    addUrl(row?.foto3);
+
+    // Fallback untuk data lama yang masih memakai row.slot[].
+    if (Array.isArray(row?.slot)) {
+      for (const slot of row.slot) {
+        addUrl(slot);
+      }
+    }
+  }
+
+  return [...urls];
+}
+
+async function prefetchFotoBuktiForTemplate(templateData = {}) {
+  const urls = collectFotoUrlsFromTemplateData(templateData);
+
+  console.log(`Prefetch ${urls.length} foto bukti sebelum render DOCX`);
+
+  if (urls.length === 0) return;
+
+  await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const buffer = await fetchFotoBuktiArrayBuffer(url);
+        if (!buffer) {
+          console.warn("Foto gagal dimuat, akan memakai fallback transparan:", url);
+        }
+      } catch (err) {
+        console.warn("Prefetch foto gagal, akan memakai fallback transparan:", url, err);
+      }
+    })
+  );
+}
+
+const DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+// 🔥 FIX: setelah render lewat renderAsync + modul gambar, doc.getZip().generate({type:"blob"})
+// kadang menghasilkan objek yang gagal dikenali sebagai Blob asli oleh browser
+// (URL.createObjectURL melempar "Overload resolution failed"). Solusinya, ambil hasilnya
+// sebagai arraybuffer lalu bungkus manual pakai konstruktor Blob bawaan browser.
+function zipToDocxBlob(zip) {
+  const arrayBuffer = zip.generate({ type: "arraybuffer" });
+  return new Blob([arrayBuffer], { type: DOCX_MIME_TYPE });
+}
+
+// Modul gambar docxtemplater — dibuat lewat fungsi (bukan instance tunggal)
+// supaya aman dipakai berulang untuk banyak dokumen dalam satu batch download.
+function createFotoBuktiImageModule() {
+  return new ImageModule({
+    centered: false,
+
+    // PENTING: getImage synchronous.
+    // Semua foto sudah di-prefetch sebelum doc.render().
+    getImage: (tagValue) => {
+      const url = getFotoUrlFromTagValue(tagValue);
+
+      if (!url) {
+        return base64ToArrayBuffer(FALLBACK_FOTO_BASE64);
+      }
+
+      const cached = fotoBuktiArrayBufferCache.get(url);
+
+      if (cached instanceof ArrayBuffer && cached.byteLength > 0) {
+        return cached;
+      }
+
+      if (ArrayBuffer.isView(cached) && cached.byteLength > 0) {
+        return cached;
+      }
+
+      console.warn("Foto belum tersedia di cache, memakai fallback transparan:", url);
+      return base64ToArrayBuffer(FALLBACK_FOTO_BASE64);
+    },
+
+    getSize: (img, tagValue) => {
+      const url = getFotoUrlFromTagValue(tagValue);
+      if (!url) return [1, 1];
+
+      // Ukuran seragam agar tiga foto muat dan rapi dalam satu baris tabel Word.
+      return [180, 135];
+    },
+  });
+}
+
+// PML => dicocokkan lewat Email/Nama PML (SELURUH foto PPL yang dia bawahi).
+// PPL => dicocokkan lewat Email/Nama PPL (foto khusus miliknya sendiri).
+function matchApproveByPmlRowForRole(approveRow, row, role) {
+  const isPml = upperText(role) === "PML";
+  const targetEmail = upperText(cleanText(row?.email || ""));
+  const targetName = upperText(cleanText(row?.nama || ""));
+  const approveEmail = upperText(cleanText(isPml ? approveRow?.email_pml : approveRow?.email_ppl));
+  const approveName = upperText(cleanText(isPml ? approveRow?.nama_pml : approveRow?.nama_ppl));
+  if (targetEmail && approveEmail) return targetEmail === approveEmail;
+  if (targetName && approveName) return targetName === approveName;
+  return false;
+}
+
+function filterApproveByPmlRowsForBappRow(approveByPmlRows = [], row = {}, role = "PML") {
+  return (approveByPmlRows || []).filter((approveRow) => matchApproveByPmlRowForRole(approveRow, row, role));
+}
+
+// Kumpulkan URL unik. Template Word memakai {#foto_rows}{%foto1} | {%foto2} | {%foto3}{/foto_rows}.
+function collectFotoBuktiFromApproveRows(approveRows = []) {
+  const seen = new Set();
+  const entries = [];
+  for (const approveRow of approveRows || []) {
+    for (const url of approveRow?.foto_bukti || []) {
+      const key = String(url ?? "").trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      entries.push({ url: key });
+    }
+  }
+  return entries;
 }
 
 function parseApproveByPmlData(arrayBuffer) {
@@ -1279,13 +1630,15 @@ const SURAT_KEPALA_TEMPLATE_URL = "/templates/SURAT PERNYATAAN KEPALA BPS.docx";
 
 // ─── TEMPLATE DATA BUILDERS ───────────────────────────────────────────────────
 
-function buildBappTemplateData(formValues, row = {}, role = "PML") {
+function buildBappTemplateData(formValues, row = {}, role = "PML", approveByPmlRows = []) {
   const tanggalSurat = cleanText(formValues?.tanggal_surat || "");
   const nama = cleanText(row?.nama || row?.nama_pml || row?.nama_ppl || "");
   const jabatan = cleanText(row?.jabatan_raw || row?.jabatan || "");
   const wilayah = cleanText(row?.wilayah || row?.tempat || row?.asal || "");
   const dateParts = getBappDateParts(tanggalSurat);
   const nomorKontrak = cleanText(row?.nomor_spk || row?.nomor_kontrak || formValues?.nomor_kontrak || "");
+  const fotoBukti = collectFotoBuktiFromApproveRows(approveByPmlRows);
+  const fotoRows = chunkFotoBuktiIntoRows(fotoBukti, 3); // ganti 3 -> 2 kalau mau 2 foto/baris
   return {
     tanggal_surat: tanggalSurat,
     tanggal_surat_fmt: formatTanggalIndonesia(tanggalSurat),
@@ -1335,28 +1688,39 @@ function buildBappTemplateData(formValues, row = {}, role = "PML") {
     persentase_prelist: cleanText(row?.persentase_prelist || row?.persentase_pendataan || ""),
     persentase_pendataan: cleanText(row?.persentase_pendataan || row?.persentase_prelist || ""),
     flag: cleanText(row?.flag || ""),
+    foto: fotoBukti,
+    foto_bukti: fotoBukti,
+    jumlah_foto: fotoBukti.length,
+    jumlah_foto_bukti: fotoBukti.length,
+    foto_rows: fotoRows,
   };
 }
 
-async function createBappBlob(templateUrl, formValues, row, role) {
+async function createBappBlob(templateUrl, formValues, row, role, approveByPmlRows = []) {
   const response = await fetch(templateUrl);
   if (!response.ok) throw new Error(`Gagal memuat template BAPP: ${response.status} ${response.statusText}`);
   const arrayBuffer = await response.arrayBuffer();
   const zip = new PizZip(arrayBuffer);
-  const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
-  doc.render(buildBappTemplateData(formValues || {}, row || {}, role));
-  return doc.getZip().generate({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+  const doc = new Docxtemplater(zip, {
+    paragraphLoop: true,
+    linebreaks: true,
+    modules: [createFotoBuktiImageModule()],
+  });
+  const fotoRows = filterApproveByPmlRowsForBappRow(approveByPmlRows, row || {}, role);
+  // renderAsync wajib dipakai karena foto diambil lewat fetch() (asinkron).
+  await doc.renderAsync(buildBappTemplateData(formValues || {}, row || {}, role, fotoRows));
+  return zipToDocxBlob(doc.getZip());
 }
 
-async function generateSingleBapp(templateUrl, formValues, row, role) {
-  const blob = await createBappBlob(templateUrl, formValues || {}, row || {}, role);
+async function generateSingleBapp(templateUrl, formValues, row, role, approveByPmlRows = []) {
+  const blob = await createBappBlob(templateUrl, formValues || {}, row || {}, role, approveByPmlRows);
   const safeName = sanitizeFileName(cleanText(row?.nama || `${role}-bapp`));
   saveAs(blob, `BAPP ${role} - ${safeName}.docx`);
 }
 
 const BAPP_ZIP_BATCH_SIZE = 150;
 
-async function generateBapp(templateUrl, formValues, rows, role, onProgress) {
+async function generateBapp(templateUrl, formValues, rows, role, onProgress, approveByPmlRows = []) {
   if (!rows || rows.length === 0) throw new Error("Tidak ada data BAPP untuk role yang dipilih.");
   const uniqueRows = dedupeBappRows(rows);
   const totalBatches = Math.ceil(uniqueRows.length / BAPP_ZIP_BATCH_SIZE);
@@ -1369,7 +1733,7 @@ async function generateBapp(templateUrl, formValues, rows, role, onProgress) {
 
     const files = [];
     for (const row of batchRows) {
-      const blob = await createBappBlob(templateUrl, formValues || {}, row || {}, role);
+      const blob = await createBappBlob(templateUrl, formValues || {}, row || {}, role, approveByPmlRows);
       files.push({
         name: `BAPP ${role} - ${sanitizeFileName(cleanText(row?.nama || "Tanpa Nama"))}.docx`,
         blob,
@@ -2269,6 +2633,7 @@ export default function PortalAdministrasiSE2026() {
         approveByPml: loadedApproveByPml,
         dataPmlProgress: loadedDataPmlProgress,   // ⬅️ baru
       } = await loadGoogleSheet(normalized, googleSheetApiKey);
+      const enrichedApproveByPml = await enrichApproveByPmlWithFotoBukti(loadedApproveByPml || []);
       if (
         data.length === 0 &&
         (!lampiran || lampiran.length === 0) &&
@@ -2286,7 +2651,7 @@ export default function PortalAdministrasiSE2026() {
       setBappData(loadedBappData || []);
       setStatusSlsData(loadedStatusSls || []);
       setDataPerSlsData(loadedDataPerSls || []);
-      setApproveByPmlData(loadedApproveByPml || []);
+      setApproveByPmlData(enrichedApproveByPml || []);
       setXlsxLoaded(true);
       setXlsxFileName(`${data.length} petugas, ${lampiran?.length || 0} lampiran, ${loadedBappData?.length || 0} pembayaran, ${loadedStatusSls?.length || 0} status SLS, ${loadedDataPerSls?.length || 0} data per SLS, ${loadedApproveByPml?.length || 0} approve PML`);
     } catch (err) {
@@ -2307,7 +2672,8 @@ export default function PortalAdministrasiSE2026() {
         const bappRows = parseBappData(buffer);
         const statusSlsRows = parseStatusSlsData(buffer);
         const dataPerSlsRows = parseDataPerSlsData(buffer);
-        const approveByPmlRows = parseApproveByPmlData(buffer);
+        let approveByPmlRows = parseApproveByPmlData(buffer);
+        approveByPmlRows = await enrichApproveByPmlWithFotoBukti(approveByPmlRows);
         const dataPmlProgressRows = parseDataPmlProgressData(buffer);
         setDataPmlProgressData(dataPmlProgressRows || []);
         setPetugasData(data || []);
@@ -2344,7 +2710,7 @@ export default function PortalAdministrasiSE2026() {
   const handleXlsxUpload = useCallback((file) => {
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const buffer = e.target.result;
         const data = parseXlsxData(buffer);
@@ -2352,7 +2718,8 @@ export default function PortalAdministrasiSE2026() {
         const bappRows = parseBappData(buffer);
         const statusSlsRows = parseStatusSlsData(buffer);
         const dataPerSlsRows = parseDataPerSlsData(buffer);
-        const approveByPmlRows = parseApproveByPmlData(buffer);
+        let approveByPmlRows = parseApproveByPmlData(buffer);
+        approveByPmlRows = await enrichApproveByPmlWithFotoBukti(approveByPmlRows);
         setPetugasData(data || []);
         setLampiranData(lampiran || []);
         setBappData(bappRows || []);
@@ -4067,7 +4434,7 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
                       if (!chosenRow) throw new Error("Data nama yang dipilih tidak ditemukan.");
                       setBappGenerating(true);
                       setBappProgressText("Membuat dokumen terpilih...");
-                      await generateSingleBapp(bappRole === "PML" ? BAPP_PML_TEMPLATE_URL : BAPP_PPL_TEMPLATE_URL, formData, chosenRow, bappRole);
+                      await generateSingleBapp(bappRole === "PML" ? BAPP_PML_TEMPLATE_URL : BAPP_PPL_TEMPLATE_URL, formData, chosenRow, bappRole, approveByPmlData);
                     } catch (err) { alert(err.message || err); }
                     finally { setBappGenerating(false); setBappProgressText(""); }
                   }} disabled={!bappManualSelect || filteredBappRows.length === 0 || bappGenerating} className="inline-flex items-center justify-center rounded-2xl bg-orange-500 px-5 py-3 text-sm font-black text-white shadow transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-orange-200">
@@ -4089,7 +4456,7 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
                       setBappProgressText(`Menyiapkan ${matchedRows.length} dokumen terpilih...`);
                       await generateBapp(bappRole === "PML" ? BAPP_PML_TEMPLATE_URL : BAPP_PPL_TEMPLATE_URL, formData, matchedRows, bappRole, ({ batchIndex, totalBatches }) => {
                         setBappProgressText(`Membuat batch ${batchIndex} dari ${totalBatches}...`);
-                      });
+                      }, approveByPmlData);
                     } catch (err) { alert(err.message || err); }
                     finally { setBappGenerating(false); setBappProgressText(""); }
                   }} disabled={filteredBappRows.length === 0 || bappGenerating || bappSelectionRows.length === 0} className="inline-flex items-center justify-center rounded-2xl border border-orange-200 bg-white px-5 py-3 text-sm font-black text-orange-700 shadow transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60">
@@ -4105,9 +4472,9 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
                       if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Juli 2026.");
                       setBappGenerating(true);
                       setBappProgressText("Mempersiapkan batch download...");
-                      await generateBapp(bappRole === "PML" ? BAPP_PML_TEMPLATE_URL : BAPP_PPL_TEMPLATE_URL, formData, filteredBappRows, bappRole, ({ batchIndex, totalBatches }) => {
+                      await generateBapp(bappRole === "PML" ? BAPP_PML_TEMPLATE_URL : BAPP_PPL_TEMPLATE_URL, formData, matchedRows, bappRole, ({ batchIndex, totalBatches }) => {
                         setBappProgressText(`Membuat batch ${batchIndex} dari ${totalBatches}...`);
-                      });
+                      }, approveByPmlData);
                     } catch (err) { alert(err.message || err); }
                     finally { setBappGenerating(false); setBappProgressText(""); }
                   }} disabled={filteredBappRows.length === 0 || bappGenerating} className="inline-flex items-center justify-center rounded-2xl border border-orange-200 bg-white px-5 py-3 text-sm font-black text-orange-700 shadow transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-60">
@@ -5911,6 +6278,11 @@ function buildBerkasPembayaranTemplateData(formValues, record, role, nikLookup) 
   const statusSlsRows = Array.isArray(record?.statusSlsRows) ? record.statusSlsRows : [];
   const dataPerSlsRows = Array.isArray(record?.dataPerSlsRows) ? record.dataPerSlsRows : [];
   const approveByPmlRows = Array.isArray(record?.approveByPmlRows) ? record.approveByPmlRows : [];
+   // 🔍 LOG SEMENTARA
+  console.log("Isi foto_bukti per baris:", approveByPmlRows.map(r => ({
+    nama_ppl: r.nama_ppl,
+    foto_bukti: r.foto_bukti,
+  })));
   const firstLampiran = lampiranRows[0] || {};
   const displayName = cleanText(
     record?.displayName || record?.bappRow?.nama || (isPml ? firstLampiran?.nama_pml : firstLampiran?.nama_ppl)
@@ -6043,7 +6415,10 @@ function buildBerkasPembayaranTemplateData(formValues, record, role, nikLookup) 
   };
 
   const rowsForBast = lampiranRows.length > 0 ? lampiranRows : [syntheticLampiranRow];
-  const bappRaw = buildBappTemplateData(formValues || {}, bappRow, role);
+  console.log("Record approveByPmlRows:", record?.approveByPmlRows?.length, record?.approveByPmlRows);
+  console.log("Record displayName/email:", record?.displayName, record?.email);
+  
+  const bappRaw = buildBappTemplateData(formValues || {}, bappRow, role, approveByPmlRows);
   const bastRaw = buildBastTemplateData(formValues || {}, rowsForBast, role, nikLookup);
   const nik = cleanText(bappRaw.nik || bastRaw.nik || nikLookup?.get(upperText(displayName)) || "");
   const nomorKontrak = cleanText(bappRaw.nomor_kontrak || bastRaw.nomor_perjanjian || nomorKontrakLampiran);
@@ -6435,16 +6810,45 @@ function fillBebanKerjaTableInDocxZip(zip, workloadRows = [], workloadTotal = {}
   zip.file("word/document.xml", serialized);
 }
 
-function createBerkasPembayaranBlobFromTemplateBuffer(templateArrayBuffer, formValues, record, role, nikLookup) {
-  const zip = new PizZip(templateArrayBuffer);
-  const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+async function createBerkasPembayaranBlobFromTemplateBuffer(
+  templateArrayBuffer,
+  formValues,
+  record,
+  role,
+  nikLookup
+) {
+  // Bangun data sebelum membuat Docxtemplater agar URL foto bisa di-prefetch.
   const templateData = buildBerkasPembayaranTemplateData(
     formValues || {},
     record || {},
     role,
     nikLookup
   );
+
+  console.log("Generate berkas pembayaran:", {
+    role,
+    nama: templateData?.nama_petugas,
+    jumlahFoto: templateData?.jumlah_foto,
+    jumlahBarisFoto: templateData?.foto_rows?.length || 0,
+  });
+
+  // FIX PPL:
+  // Download seluruh foto lebih dulu. Setelah tahap ini ImageModule tidak perlu
+  // mengembalikan Promise saat Docxtemplater memproses loop gambar.
+  await prefetchFotoBuktiForTemplate(templateData);
+
+  const zip = new PizZip(templateArrayBuffer);
+  const doc = new Docxtemplater(zip, {
+    paragraphLoop: true,
+    linebreaks: true,
+    modules: [createFotoBuktiImageModule()],
+  });
+
+  // Jangan gunakan await doc.renderAsync(templateData) untuk image module gratis
+  // pada loop foto. Foto sudah tersedia di cache sehingga render sinkron aman.
   doc.render(templateData);
+
+  console.log("Jumlah foto:", templateData.jumlah_foto, templateData.foto_bukti);
 
   // Template tetap dipakai apa adanya. Kode hanya mengganti baris kosong pada tabel
   // Beban Kerja halaman terakhir dengan data dari sheet Data per SLS.
@@ -6454,10 +6858,7 @@ function createBerkasPembayaranBlobFromTemplateBuffer(templateArrayBuffer, formV
     templateData.beban_kerja_total || {}
   );
 
-  return doc.getZip().generate({
-    type: "blob",
-    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  });
+  return zipToDocxBlob(doc.getZip());
 }
 
 async function generateSingleBerkasPembayaran(templateUrl, formValues, record, role, nikLookup) {
@@ -6465,7 +6866,7 @@ async function generateSingleBerkasPembayaran(templateUrl, formValues, record, r
   const response = await fetch(templateUrl);
   if (!response.ok) throw new Error(`Gagal memuat template berkas pembayaran: ${response.status} ${response.statusText}`);
   const templateArrayBuffer = await response.arrayBuffer();
-  const blob = createBerkasPembayaranBlobFromTemplateBuffer(templateArrayBuffer, formValues, record, role, nikLookup);
+  const blob = await createBerkasPembayaranBlobFromTemplateBuffer(templateArrayBuffer, formValues, record, role, nikLookup); // ⬅️ tambah await
   saveAs(blob, `BERKAS PEMBAYARAN ${role} - ${sanitizeFileName(record.displayName)}.docx`);
 }
 
@@ -6489,7 +6890,7 @@ async function generateBerkasPembayaran(templateUrl, formValues, records, role, 
     const fileNameCounts = new Map();
 
     for (const record of batchEntries) {
-      const blob = createBerkasPembayaranBlobFromTemplateBuffer(
+      const blob = await createBerkasPembayaranBlobFromTemplateBuffer(   // ⬅️ tambah await
         templateArrayBuffer, formValues || {}, record, role, nikLookup
       );
       const baseName = sanitizeFileName(record.displayName);
