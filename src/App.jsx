@@ -498,12 +498,14 @@ function normalizeApproveByPmlRow(row = {}) {
 // ─── FOTO BUKTI (GOOGLE DRIVE) ───────────────────────────────────────────────
 // ─── FOTO BUKTI DARI SPREADSHEET TERPISAH (Database SLS) ────────────────────
 // Link foto tidak ada di sheet "Approve by PML" yang dipakai utama, tapi ada di
-// spreadsheet lain bernama "Database SLS [JANGAN DIUBAH]", tab "Submission-Testing".
+// spreadsheet lain bernama "Database SLS [JANGAN DIUBAH]", tab "Submission-V2".
+// 🔥 BARU: tab ini memisahkan foto jadi 2 kolom sendiri-sendiri, "Foto Bukti PPL"
+// dan "Foto Bukti PML" (sebelumnya cuma satu kolom "Foto Bukti" gabungan).
 // Data ini diambil terpisah lalu digabungkan ke approveByPmlRows berdasarkan
 // Email PML + Email PPL.
 const FOTO_BUKTI_SPREADSHEET_ID = "1U694SejnIYezDRgy6Ao_1Moik4ckW7iMBWJeOmgpkcI";
 const FOTO_BUKTI_SPREADSHEET_EXPORT_URL = `https://docs.google.com/spreadsheets/d/${FOTO_BUKTI_SPREADSHEET_ID}/export?format=xlsx`;
-const FOTO_BUKTI_SHEET_NAME = "Submission-Testing";
+const FOTO_BUKTI_SHEET_NAME = "Submission-V2";
 
 // Cache supaya spreadsheet foto tidak di-fetch berulang kali dalam satu sesi.
 let fotoBuktiDatabaseSlsCache = null;
@@ -524,7 +526,10 @@ function normalizeFotoBuktiRow(row = {}) {
   return {
     email_ppl: get("email ppl", "email_ppl"),
     email_pml: get("email pml", "email_pml"),
-    foto_bukti: splitFotoBuktiUrls(get("foto bukti", "foto_bukti", "link foto", "foto")),
+    // 🔥 BARU: dipisah per role. foto_bukti_ppl dari kolom "Foto Bukti PPL",
+    // foto_bukti_pml dari kolom "Foto Bukti PML".
+    foto_bukti_ppl: splitFotoBuktiUrls(get("foto bukti ppl", "foto_bukti_ppl")),
+    foto_bukti_pml: splitFotoBuktiUrls(get("foto bukti pml", "foto_bukti_pml")),
   };
 }
 
@@ -553,8 +558,10 @@ async function fetchFotoBuktiRowsFromDatabaseSls() {
   return rows;
 }
 
-// Map: "EMAIL_PML::EMAIL_PPL" -> Set url foto (satu pasangan PML+PPL bisa punya
-// beberapa foto dari beberapa baris SLS berbeda).
+// Map: "EMAIL_PML::EMAIL_PPL" -> { fotoPml: Set, fotoPpl: Set } (satu pasangan
+// PML+PPL bisa punya beberapa foto dari beberapa baris SLS berbeda).
+// 🔥 BARU: foto PML dan foto PPL disimpan terpisah karena sumbernya sekarang
+// dua kolom berbeda ("Foto Bukti PML" vs "Foto Bukti PPL").
 function buildFotoBuktiMapByPmlPpl(fotoBuktiRows = []) {
   const map = new Map();
   for (const row of fotoBuktiRows || []) {
@@ -562,9 +569,10 @@ function buildFotoBuktiMapByPmlPpl(fotoBuktiRows = []) {
     const emailPpl = upperText(row.email_ppl);
     if (!emailPml && !emailPpl) continue;
     const key = `${emailPml}::${emailPpl}`;
-    if (!map.has(key)) map.set(key, new Set());
-    const set = map.get(key);
-    for (const url of row.foto_bukti || []) set.add(url);
+    if (!map.has(key)) map.set(key, { fotoPml: new Set(), fotoPpl: new Set() });
+    const entry = map.get(key);
+    for (const url of row.foto_bukti_pml || []) entry.fotoPml.add(url);
+    for (const url of row.foto_bukti_ppl || []) entry.fotoPpl.add(url);
   }
   return map;
 }
@@ -573,10 +581,11 @@ function mergeFotoBuktiIntoApproveByPmlRows(approveByPmlRows = [], fotoBuktiMap)
   if (!fotoBuktiMap || fotoBuktiMap.size === 0) return approveByPmlRows;
   return (approveByPmlRows || []).map((row) => {
     const key = `${upperText(row.email_pml)}::${upperText(row.email_ppl)}`;
-    const urls = fotoBuktiMap.get(key);
-    if (!urls || urls.size === 0) return row;
-    const merged = new Set([...(row.foto_bukti || []), ...urls]);
-    return { ...row, foto_bukti: [...merged] };
+    const entry = fotoBuktiMap.get(key);
+    if (!entry) return row;
+    const mergedPml = new Set([...(row.foto_bukti_pml || []), ...entry.fotoPml]);
+    const mergedPpl = new Set([...(row.foto_bukti_ppl || []), ...entry.fotoPpl]);
+    return { ...row, foto_bukti_pml: [...mergedPml], foto_bukti_ppl: [...mergedPpl] };
   });
 }
 
@@ -828,11 +837,17 @@ function filterApproveByPmlRowsForBappRow(approveByPmlRows = [], row = {}, role 
 }
 
 // Kumpulkan URL unik. Template Word memakai {#foto_rows}{%foto1} | {%foto2} | {%foto3}{/foto_rows}.
-function collectFotoBuktiFromApproveRows(approveRows = []) {
+// 🔥 BARU: role menentukan kolom foto yang dipakai — generate PML memakai
+// foto_bukti_pml (foto dari SEMUA PPL di bawah PML tsb, karena approveRows yang
+// dikirim ke sini sudah difilter per-PML sebelumnya), generate PPL memakai
+// foto_bukti_ppl (foto milik PPL itu sendiri saja).
+function collectFotoBuktiFromApproveRows(approveRows = [], role = "PML") {
+  const isPml = upperText(role) === "PML";
   const seen = new Set();
   const entries = [];
   for (const approveRow of approveRows || []) {
-    for (const url of approveRow?.foto_bukti || []) {
+    const urls = isPml ? approveRow?.foto_bukti_pml : approveRow?.foto_bukti_ppl;
+    for (const url of urls || []) {
       const key = String(url ?? "").trim();
       if (!key || seen.has(key)) continue;
       seen.add(key);
@@ -1637,7 +1652,7 @@ function buildBappTemplateData(formValues, row = {}, role = "PML", approveByPmlR
   const wilayah = cleanText(row?.wilayah || row?.tempat || row?.asal || "");
   const dateParts = getBappDateParts(tanggalSurat);
   const nomorKontrak = cleanText(row?.nomor_spk || row?.nomor_kontrak || formValues?.nomor_kontrak || "");
-  const fotoBukti = collectFotoBuktiFromApproveRows(approveByPmlRows);
+  const fotoBukti = collectFotoBuktiFromApproveRows(approveByPmlRows, role);
   const fotoRows = chunkFotoBuktiIntoRows(fotoBukti, 3); // ganti 3 -> 2 kalau mau 2 foto/baris
   return {
     tanggal_surat: tanggalSurat,
@@ -6281,7 +6296,8 @@ function buildBerkasPembayaranTemplateData(formValues, record, role, nikLookup) 
    // 🔍 LOG SEMENTARA
   console.log("Isi foto_bukti per baris:", approveByPmlRows.map(r => ({
     nama_ppl: r.nama_ppl,
-    foto_bukti: r.foto_bukti,
+    foto_bukti_pml: r.foto_bukti_pml,
+    foto_bukti_ppl: r.foto_bukti_ppl,
   })));
   const firstLampiran = lampiranRows[0] || {};
   const displayName = cleanText(
@@ -6983,37 +6999,36 @@ function buildSuratKepalaRows(
     let realisasi = 0;
 
     if (jabatan === "PML") {
-      // 🔥 BARU: realisasi PML diambil dari sheet "Data PML Progress" kolom L
-      // ("Realisasi Jumlah (Dengan Tidak Ditemukan) > Jumlah"), dicocokkan lewat
-      // Username Sobat (fallback: Nama).
-      const progressRow = findDataPmlProgressRow(
-        dataPmlProgressData,
-        bappRow.nama,
-        bappRow.email
-      );
+      // 🔥 DISAMAKAN dengan fitur Gabungan Administrasi Pembayaran:
+      // realisasi PML diambil dari total kolom "Jumlah Approve PML" pada sheet
+      // "Approve by PML" (via applyApproveByPmlToWorkload), BUKAN lagi dari sheet
+      // "Data PML Progress". Target tetap dijumlahkan dari sheet "Data per SLS".
+      const identity = getBerkasIdentity(cleanText(bappRow.nama), cleanText(bappRow.email));
+      const record = pmlRecords.find((r) => r.identity === identity) ||
+        pmlRecords.find((r) => upperText(r.displayName) === upperText(cleanText(bappRow.nama)));
 
-      if (progressRow) {
-        realisasi = parseDataPerSlsNumber(progressRow.realisasi_jumlah) || 0;
-        // Target ikut memakai kolom I ("Jumlah" pada grup Target Prelist Awal)
-        // dari baris yang sama supaya persentase konsisten dengan sheet tersebut.
-        const progressTarget = parseDataPerSlsNumber(progressRow.jumlah_target);
-        if (progressTarget) target = progressTarget;
+      const dataPerSlsRows = record?.dataPerSlsRows || [];
+      const approveByPmlRows = record?.approveByPmlRows || [];
+      const bebanKerjaBase = buildDataPerSlsWorkloadRows(dataPerSlsRows, "PML");
+      const bebanKerja = applyApproveByPmlToWorkload(bebanKerjaBase, approveByPmlRows, "PML");
+      const hasApproveData = approveByPmlRows.length > 0;
+      const hasDataPerSls = bebanKerja.rows.length > 0;
+
+      if (hasApproveData || hasDataPerSls) {
+        // total.target_jumlah = jumlah target dari Data per SLS
+        // total.realisasi_jumlah = jumlah "Jumlah Approve PML" dari Approve by PML
+        // (lihat applyApproveByPmlToWorkload -> directApproveTotal), sama persis
+        // dengan yang dipakai pada Gabungan Administrasi Pembayaran PML.
+        target = parseDataPerSlsNumber(bebanKerja.total.target_jumlah) || target;
+        realisasi = parseDataPerSlsNumber(bebanKerja.total.realisasi_jumlah) || 0;
       } else {
-        // Fallback lama: pakai Data per SLS / Approve by PML seperti sebelumnya,
-        // hanya dipakai kalau orang ini tidak ditemukan di Data PML Progress.
-        const identity = getBerkasIdentity(cleanText(bappRow.nama), cleanText(bappRow.email));
-        const record = pmlRecords.find((r) => r.identity === identity) ||
-          pmlRecords.find((r) => upperText(r.displayName) === upperText(cleanText(bappRow.nama)));
-
-        const dataPerSlsRows = record?.dataPerSlsRows || [];
-        const approveByPmlRows = record?.approveByPmlRows || [];
-        const bebanKerjaBase = buildDataPerSlsWorkloadRows(dataPerSlsRows, "PML");
-        const bebanKerja = applyApproveByPmlToWorkload(bebanKerjaBase, approveByPmlRows, "PML");
-        const hasDataPerSls = bebanKerja.rows.length > 0;
-
-        if (hasDataPerSls) {
-          target = parseDataPerSlsNumber(bebanKerja.total.target_jumlah) || 0;
-          realisasi = parseDataPerSlsNumber(bebanKerja.total.realisasi_jumlah) || 0;
+        // Fallback terakhir kalau PML ini sama sekali tidak punya baris di
+        // Data per SLS maupun Approve by PML.
+        const progressRow = findDataPmlProgressRow(dataPmlProgressData, bappRow.nama, bappRow.email);
+        if (progressRow) {
+          realisasi = parseDataPerSlsNumber(progressRow.realisasi_jumlah) || 0;
+          const progressTarget = parseDataPerSlsNumber(progressRow.jumlah_target);
+          if (progressTarget) target = progressTarget;
         } else {
           realisasi = parseDataPerSlsNumber(bappRow.realisasi_total) || 0;
         }
