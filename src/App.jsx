@@ -3741,12 +3741,12 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
                   <input
                     type="date"
                     min="2026-07-15"
-                    max="2026-07-31"
+                    max="2026-08-31"
                     className={inputCls}
                     value={formData.tanggal_surat || ""}
                     onChange={(e) => update("tanggal_surat", e.target.value)}
                   />
-                  <p className="mt-1 text-xs font-semibold text-slate-400">Rentang tanggal yang diizinkan: 15–31 Juli 2026.</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Rentang tanggal yang diizinkan: 15–31 Agustus 2026.</p>
                 </div>
 
                 <div>
@@ -4403,12 +4403,12 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
                   <input
                     type="date"
                     min="2026-07-15"
-                    max="2026-07-31"
+                    max="2026-08-31"
                     className={inputCls}
                     value={formData.tanggal_surat || ""}
                     onChange={(e) => update("tanggal_surat", e.target.value)}
                   />
-                  <p className="mt-1 text-xs font-semibold text-slate-400">Rentang tanggal yang diizinkan: 15 Juli 2026 sampai 31 Juli 2026.</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Rentang tanggal yang diizinkan: 15 Juli 2026 sampai 31 Agustus 2026.</p>
                 </div>
 
                 <div>
@@ -4442,8 +4442,8 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
                       if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
                       const selectedDate = new Date(formData.tanggal_surat);
                       const minDate = new Date("2026-07-15T00:00:00");
-                      const maxDate = new Date("2026-07-31T23:59:59");
-                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Juli 2026.");
+                      const maxDate = new Date("2026-08-31T23:59:59");
+                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Agustus 2026.");
                       if (!bappManualSelect) throw new Error("Pilih nama terlebih dahulu.");
                       const chosenRow = bappOptions.find((option) => option.value === bappManualSelect)?.row;
                       if (!chosenRow) throw new Error("Data nama yang dipilih tidak ditemukan.");
@@ -4461,8 +4461,8 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
                       if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
                       const selectedDate = new Date(formData.tanggal_surat);
                       const minDate = new Date("2026-07-15T00:00:00");
-                      const maxDate = new Date("2026-07-31T23:59:59");
-                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Juli 2026.");
+                      const maxDate = new Date("2026-08-31T23:59:59");
+                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Agustus 2026.");
                       if (bappSelectionRows.length === 0) throw new Error("Unggah file Excel Nama/Email terlebih dahulu.");
                       const keySet = buildSelectionKeySet(bappSelectionRows);
                       const matchedRows = filteredBappRows.filter((row) => rowMatchesSelection(keySet, row.nama, row.email));
@@ -4483,8 +4483,8 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
                       if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
                       const selectedDate = new Date(formData.tanggal_surat);
                       const minDate = new Date("2026-07-15T00:00:00");
-                      const maxDate = new Date("2026-07-31T23:59:59");
-                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Juli 2026.");
+                      const maxDate = new Date("2026-08-31T23:59:59");
+                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Agustus 2026.");
                       setBappGenerating(true);
                       setBappProgressText("Mempersiapkan batch download...");
                       await generateBapp(bappRole === "PML" ? BAPP_PML_TEMPLATE_URL : BAPP_PPL_TEMPLATE_URL, formData, matchedRows, bappRole, ({ batchIndex, totalBatches }) => {
@@ -4562,12 +4562,12 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
                   <input
                     type="date"
                     min="2026-07-15"
-                    max="2026-07-31"
+                    max="2026-08-31"
                     className={inputCls}
                     value={formData.tanggal_surat || ""}
                     onChange={(e) => update("tanggal_surat", e.target.value)}
                   />
-                  <p className="mt-1 text-xs font-semibold text-slate-400">Rentang tanggal yang diizinkan: 15 Juli 2026 sampai 31 Juli 2026.</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Rentang tanggal yang diizinkan: 15 Juli 2026 sampai 31 Agustus 2026.</p>
                 </div>
 
                 <div>
@@ -4601,8 +4601,8 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
                       if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
                       const selectedDate = new Date(formData.tanggal_surat);
                       const minDate = new Date("2026-07-15T00:00:00");
-                      const maxDate = new Date("2026-07-31T23:59:59");
-                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Juli 2026.");
+                      const maxDate = new Date("2026-08-31T23:59:59");
+                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Agustus 2026.");
                       if (!bastManualSelect) throw new Error("Pilih nama terlebih dahulu.");
                       const chosen = bastOptions.find((option) => option.value === bastManualSelect);
                       if (!chosen) throw new Error("Data nama yang dipilih tidak ditemukan.");
@@ -4620,8 +4620,8 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
                       if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
                       const selectedDate = new Date(formData.tanggal_surat);
                       const minDate = new Date("2026-07-15T00:00:00");
-                      const maxDate = new Date("2026-07-31T23:59:59");
-                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Juli 2026.");
+                      const maxDate = new Date("2026-08-31T23:59:59");
+                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Agustus 2026.");
                       if (bastSelectionRows.length === 0) throw new Error("Unggah file Excel Nama/Email terlebih dahulu.");
                       const keySet = buildSelectionKeySet(bastSelectionRows);
                       const matchedRows = filteredBastRows.filter((row) => rowMatchesSelection(keySet, isPml ? row.nama_pml : row.nama_ppl, isPml ? row.email_pengawas : row.email_pencacah));
@@ -4642,8 +4642,8 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
                       if (!formData.tanggal_surat) throw new Error("Isi tanggal surat terlebih dahulu.");
                       const selectedDate = new Date(formData.tanggal_surat);
                       const minDate = new Date("2026-07-15T00:00:00");
-                      const maxDate = new Date("2026-07-31T23:59:59");
-                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Juli 2026.");
+                      const maxDate = new Date("2026-08-31T23:59:59");
+                      if (selectedDate < minDate || selectedDate > maxDate) throw new Error("Tanggal surat hanya boleh 15 Juli 2026 sampai 31 Agustus 2026.");
                       setBastGenerating(true);
                       setBastProgressText("Mempersiapkan batch download...");
                       await generateBast(bastRole === "PML" ? BAST_PML_TEMPLATE_URL : BAST_PPL_TEMPLATE_URL, formData, filteredBastRows, bastRole, nikLookup, ({ batchIndex, totalBatches }) => {
