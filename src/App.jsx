@@ -4993,12 +4993,29 @@ const [gabunganSelectionRows, setGabunganSelectionRows] = useState([]);
                   if (suratKepalaSelectionRows.length === 0) {
                     throw new Error("Unggah file Excel Nama/Email terlebih dahulu.");
                   }
+
+                  const { rows, skipped } = buildSuratKepalaRows(
+                    suratKepalaSelectionRows,
+                    bappData,
+                    dataPerSlsData,
+                    lampiranData,
+                    statusSlsData,
+                    approveByPmlData
+                  );
+
                   if (rows.length === 0) {
-                    throw new Error("Tidak ada baris yang cocok untuk dimasukkan ke lampiran.");
+                    throw new Error(
+                      "Tidak ada baris yang cocok untuk dimasukkan ke lampiran." +
+                      (skipped.length
+                        ? "\n\n" + skipped.map((s) => `- ${s.nama || s.email}: ${s.alasan}`).join("\n")
+                        : "")
+                    );
                   }
+
                   setSuratKepalaGenerating(true);
                   setSuratKepalaProgressText(`Menyiapkan surat untuk ${rows.length} petugas...`);
                   await generateSuratKepala(SURAT_KEPALA_TEMPLATE_URL, rows);
+
                   if (skipped.length > 0) {
                     alert(
                       `Surat berhasil dibuat. ${skipped.length} baris dilewati:\n\n` +
