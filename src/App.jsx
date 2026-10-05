@@ -6998,6 +6998,20 @@ function findDataPmlProgressRow(dataPmlProgressData = [], nama = "", email = "")
   return row || null;
 }
 
+// Surat Kepala: target & realisasi PML maupun PPL sama-sama dari Data per SLS
+// (Realisasi "Dengan Tidak Ditemukan" > Jumlah). Approve by PML tidak dipakai.
+function getSuratKepalaSummary(record, role) {
+  const workload = buildDataPerSlsWorkloadRows(record?.dataPerSlsRows || [], role);
+  const target = parseDataPerSlsNumber(workload.total.target_jumlah) || 0;
+  const realisasi = parseDataPerSlsNumber(workload.total.realisasi_jumlah) || 0;
+  return {
+    target,
+    realisasi,
+    persentase: target ? (realisasi / target) * 100 : 0,
+    hasData: workload.rows.length > 0,
+  };
+}
+
 function buildSuratKepalaRows(
   selectionRows = [],
   bappData = [],
@@ -7040,10 +7054,10 @@ function buildSuratKepalaRows(
     seen.add(dedupeKey);
 
     const record = recordsByRole[jabatan].find((r) => r.identity === identity);
-    const summary = record ? getRecordSummary(record, jabatan) : null;
+    const summary = record ? getSuratKepalaSummary(record, jabatan) : null;
 
     if (!summary || !summary.hasData) {
-      skipped.push({ nama: bappRow.nama, email: bappRow.email, alasan: jabatan + " tidak punya data di Data per SLS / Approve by PML" });
+      skipped.push({ nama: bappRow.nama, email: bappRow.email, alasan: jabatan + " tidak punya data di Data per SLS" });
       continue;
     }
 
